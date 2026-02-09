@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Diagnóstico de Elementos</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #f0f0f0; }
+        .section { background: white; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .ok { color: green; }
+        .error { color: red; }
+        .warning { color: orange; }
+        code { background: #333; color: #0f0; padding: 2px 5px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 DIAGNÓSTICO DE ELEMENTOS DEL DOM</h1>
+    
+    <div class="section">
+        <h2>1. Verificación de Elementos HTML</h2>
+        <div id="htmlCheck"></div>
+    </div>
+
+    <div class="section">
+        <h2>2. Estado de Visibilidad</h2>
+        <div id="visibilityCheck"></div>
+    </div>
+
+    <div class="section">
+        <h2>3. Prueba de Input</h2>
+        <div id="inputTest"></div>
+    </div>
+
+    <div class="section">
+        <h2>4. Elementos Encontrados</h2>
+        <div id="elementsList"></div>
+    </div>
+
+    <script>
+        // Función para agregar resultado
+        function addResult(elementId, text, isOk) {
+            const elem = document.getElementById(elementId);
+            const div = document.createElement('div');
+            div.className = isOk ? 'ok' : 'error';
+            div.innerHTML = text;
+            elem.appendChild(div);
+        }
+
+        // 1. Verificar elementos
+        const elements = {
+            'ticketNumber': document.getElementById('ticketNumber'),
+            'btnSearchTicket': document.getElementById('btnSearchTicket'),
+            'ticket-detail-tab': document.getElementById('ticket-detail-tab'),
+            'reports-tab': document.getElementById('reports-tab'),
+            'ticketDetailContent': document.getElementById('ticketDetailContent'),
+            'filters-panel': document.querySelector('.filters-panel'),
+            'tab-buttons': document.querySelectorAll('.tab-button')
+        };
+
+        Object.entries(elements).forEach(([name, elem]) => {
+            if (Array.isArray(elem.length !== undefined)) {
+                addResult('htmlCheck', `<code>${name}</code>: ${elem.length} elementos encontrados ✓`, true);
+            } else {
+                const status = elem ? '✓ Encontrado' : '❌ NO ENCONTRADO';
+                const isOk = elem ? true : false;
+                addResult('htmlCheck', `<code>${name}</code>: ${status}`, isOk);
+            }
+        });
+
+        // 2. Visibilidad
+        if (elements['ticketNumber']) {
+            const tab = document.getElementById('ticket-detail-tab');
+            const input = elements['ticketNumber'];
+            
+            const tabDisplay = window.getComputedStyle(tab).display;
+            const inputDisplay = window.getComputedStyle(input).display;
+            
+            addResult('visibilityCheck', 
+                `<code>#ticket-detail-tab</code> display: <code>${tabDisplay}</code>`, 
+                tabDisplay !== 'none');
+            
+            addResult('visibilityCheck',
+                `<code>#ticketNumber</code> display: <code>${inputDisplay}</code>`,
+                inputDisplay !== 'none');
+
+            if (tab.classList.contains('active')) {
+                addResult('visibilityCheck', '<code>#ticket-detail-tab</code> tiene clase <code>.active</code> ✓', true);
+            } else {
+                addResult('visibilityCheck', '<code>#ticket-detail-tab</code> NO tiene clase <code>.active</code>', false);
+            }
+        }
+
+        // 3. Prueba de input
+        const inputTest = document.getElementById('inputTest');
+        if (elements['ticketNumber']) {
+            const input = elements['ticketNumber'];
+            
+            // Prueba de escritura
+            input.value = 'TEST123';
+            const canWrite = input.value === 'TEST123';
+            addResult('inputTest', 
+                `👉 Se puede escribir en input: ${canWrite ? '✓ SÍ' : '❌ NO'}`, 
+                canWrite);
+            
+            // Prueba de disabled
+            const isDisabled = input.disabled;
+            addResult('inputTest',
+                `Input está disabled: ${isDisabled ? 'SÍ ❌' : 'NO ✓'}`,
+                !isDisabled);
+            
+            // Limpiar
+            input.value = '';
+        }
+
+        // 4. Listar todos los elementos relevantes
+        const elementsList = document.getElementById('elementsList');
+        Object.entries(elements).forEach(([name, elem]) => {
+            if (elem && elem.length === undefined) {
+                const div = document.createElement('div');
+                div.innerHTML = `<code>${name}</code>: id=<code>${elem.id}</code>, class=<code>${elem.className}</code>`;
+                elementsList.appendChild(div);
+            } else if (Array.isArray(elem) && elem.length > 0 && elem[0].length === undefined) {
+                const div = document.createElement('div');
+                div.innerHTML = `<code>${name}</code>: ${elem.length} botones`;
+                elementsList.appendChild(div);
+            }
+        });
+
+        console.log('✓ Diagnóstico completado');
+        console.log('Elementos:', elements);
+    </script>
+</body>
+</html>

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reportes SLA - Zammad</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>📊 Reportes de SLA - Zammad</h1>
+            <p class="subtitle">Sistema de análisis y generación de reportes personalizados</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Tabs para navegar entre secciones -->
+            <div class="tabs-header">
+                <button class="tab-button active" data-tab="reports">📊 Reportes</button>
+            </div>
+
+            <!-- TAB 1: Reportes -->
+            <div id="reports-tab" class="tab-content active">
+            
+            <!-- Panel de Selección de Calendario (OBLIGATORIO) -->
+            <div class="calendar-selector-panel" id="calendarSelectorPanel">
+                <div class="calendar-selector-content">
+                    <h2>⏰ Selecciona el Tipo de Calendario</h2>
+                    <p class="calendar-selector-description">El calendario determina cómo se calculan los tiempos del ticket según el tipo de contrato.</p>
+                    
+                    <div class="calendar-options">
+                        <label class="calendar-option">
+                            <input type="radio" name="calendarType" value="laboral" checked>
+                            <div class="calendar-option-content">
+                                <h3>⏢ Horario Laboral</h3>
+                                <p>Lunes a Viernes, 8:00 AM - 5:00 PM</p>
+                                <span class="calendar-option-example">Incluye festivos colombianos</span>
+                            </div>
+                        </label>
+                        
+                        <label class="calendar-option">
+                            <input type="radio" name="calendarType" value="24-7">
+                            <div class="calendar-option-content">
+                                <h3>🌙 24/7 (Permanente)</h3>
+                                <p>Todos los días, 24 horas</p>
+                                <span class="calendar-option-example">Sin descansos, fines de semana ni festivos</span>
+                            </div>
+                        </label>
+                        
+                        <label class="calendar-option">
+                            <input type="radio" name="calendarType" value="extended">
+                            <div class="calendar-option-content">
+                                <h3>🌅 Horario Extendido</h3>
+                                <p>Lunes a Domingo, 8:00 AM - 10:00 PM</p>
+                                <span class="calendar-option-example">Incluye sábados y domingos (sin festivos)</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="button-group" style="margin-top: 25px;">
+                        <button id="btnConfirmCalendar" class="btn btn-primary" style="width: 100%;">
+                            <span class="btn-icon">✓</span>
+                            Confirmar Calendario
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Panel de filtros (aparece después de seleccionar calendario) -->
+            <div class="filters-panel" id="filtersPanelMain" style="display: none;">
+                <h2>Filtros del Reporte</h2>
+                
+                <div class="calendar-selected-info">
+                    <p>📅 Calendario seleccionado: <strong id="calendarSelectedDisplay">Horario Laboral</strong> 
+                    <button id="btnChangeCalendar" class="btn-link">Cambiar</button></p>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="startDate">Fecha Inicio:</label>
+                    <input type="date" id="startDate" class="input-field">
+                </div>
+
+                <div class="filter-group">
+                    <label for="endDate">Fecha Fin:</label>
+                    <input type="date" id="endDate" class="input-field">
+                </div>
+
+                <div class="filter-group">
+                    <label for="projectSelect">Proyecto:</label>
+                    <select id="projectSelect" class="input-field">
+                        <option value="">Todos los proyectos</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="agentSelect">Agente:</label>
+                    <select id="agentSelect" class="input-field">
+                        <option value="">Todos los agentes</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="stateSelect">Estado:</label>
+                    <select id="stateSelect" class="input-field">
+                        <option value="">Todos los estados</option>
+                        <option value="new">Nuevo</option>
+                        <option value="open">Abierto</option>
+                        <option value="pending reminder">Recordatorio pendiente</option>
+                        <option value="pending close">Pendiente cerrar</option>
+                        <option value="closed">Cerrado</option>
+                    </select>
+                </div>
+
+                <div class="button-group">
+                    <button id="btnLoadMetrics" class="btn btn-primary">
+                        <span class="btn-icon">🔍</span>
+                        Cargar Métricas
+                    </button>
+                    <button id="btnGenerateReport" class="btn btn-success">
+                        <span class="btn-icon">📥</span>
+                        Generar Excel
+                    </button>
+                </div>
+            </div>
+
+            <!-- Panel de métricas -->
+            <div class="metrics-panel">
+                <!-- Búsqueda Rápida de Ticket Individual -->
+                <div class="metrics-section" style="border: 2px solid #667eea; background: #f0f4ff; padding: 20px;">
+                    <h2 style="display: flex; gap: 10px; align-items: center;">🔍 Buscar Ticket Individual</h2>
+                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <input type="text" id="quickTicketNumber" class="input-field" placeholder="Ej: 201132" style="flex: 1;">
+                        <button id="btnQuickSearch" class="btn btn-primary">
+                            <span class="btn-icon">🔍</span>
+                            Buscar
+                        </button>
+                    </div>
+                    
+                    <!-- Resultado de búsqueda de ticket -->
+                    <div id="quickTicketResult" style="display: none; margin-top: 20px;">
+                        <div style="background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 id="quickTicketTitle" style="margin-top: 0;"></h3>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 15px 0;">
+                                <div><strong>Número:</strong> <span id="quickTicketNum"></span></div>
+                                <div><strong>Proyecto:</strong> <span id="quickTicketOrg"></span></div>
+                                <div><strong>Estado Actual:</strong> <span id="quickTicketState"></span></div>
+                                <div><strong>Empresa:</strong> <span id="quickTicketCo"></span></div>
+                                <div><strong>Creado:</strong> <span id="quickTicketCreated"></span></div>
+                                <div><strong>Cerrado:</strong> <span id="quickTicketClosed"></span></div>
+                            </div>
+                            
+                            <h4>Duración por Estado (Horario Laboral):</h4>
+                            <table class="states-duration-table" style="width: 100%; margin-top: 10px;">
+                                <thead>
+                                    <tr>
+                                        <th>Estado</th>
+                                        <th style="text-align: right;">Minutos</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="quickTicketStateBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Error de búsqueda -->
+                    <div id="quickTicketError" class="error-message" style="display: none; margin-top: 15px;">
+                        <p id="quickTicketErrorMsg"></p>
+                    </div>
+                    
+                    <!-- Loading -->
+                    <div id="quickTicketLoading" class="loading-indicator" style="display: none; margin-top: 15px;">
+                        <div class="spinner"></div>
+                        <p>Buscando ticket...</p>
+                    </div>
+                </div>
+
+                <div id="loadingIndicator" class="loading-indicator" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Cargando datos...</p>
+                </div>
+
+                <div id="metricsContent" style="display: none;">
+                    <!-- Duraciones por Estado para cada Ticket - PRINCIPAL -->
+                    <div class="metrics-section">
+                        <h2>📊 Duración por Estado - Detalle de Tickets</h2>
+                        <p style="color: #666; margin: -10px 0 15px 0;">Todos los tickets con su tiempo en cada estado</p>
+                        <div id="ticketDurationsContainer" class="table-container" style="display: none;">
+                            <table class="states-duration-table" style="width: 100%;">
+                                <thead>
+                                    <tr>
+                                        <th>Ticket</th>
+                                        <th>Título</th>
+                                        <th>Proyecto</th>
+                                        <th>Estado</th>
+                                        <th style="text-align: right;">Minutos</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ticketDurationsBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Resumen de Métricas -->
+                    <div class="metrics-section">
+                        <h2>📈 Resumen General</h2>
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-label">Total Tickets</div>
+                                <div class="metric-value" id="totalTickets">0</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Tickets Cerrados</div>
+                                <div class="metric-value" id="closedTickets">0</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Tickets Abiertos</div>
+                                <div class="metric-value" id="openTickets">0</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SLA Cumplimiento -->
+                    <div class="metrics-section">
+                        <h2>⏱️ SLA - Cumplimiento</h2>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            <!-- Primera Respuesta -->
+                            <div>
+                                <h3 style="font-size: 14px; color: #667eea; margin-bottom: 10px;">Primera Respuesta</h3>
+                                <div class="metrics-grid">
+                                    <div class="metric-card success">
+                                        <div class="metric-label">Cumplidos</div>
+                                        <div class="metric-value" id="frMet">0</div>
+                                    </div>
+                                    <div class="metric-card danger">
+                                        <div class="metric-label">Incumplidos</div>
+                                        <div class="metric-value" id="frBreached">0</div>
+                                    </div>
+                                    <div class="metric-card info">
+                                        <div class="metric-label">% Cumplimiento</div>
+                                        <div class="metric-value" id="frRate">0%</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <div class="metric-label">Promedio</div>
+                                        <div class="metric-value" id="frAvgTime">0 min</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Resolución -->
+                            <div>
+                                <h3 style="font-size: 14px; color: #667eea; margin-bottom: 10px;">Resolución</h3>
+                                <div class="metrics-grid">
+                                    <div class="metric-card success">
+                                        <div class="metric-label">Cumplidos</div>
+                                        <div class="metric-value" id="resMet">0</div>
+                                    </div>
+                                    <div class="metric-card danger">
+                                        <div class="metric-label">Incumplidos</div>
+                                        <div class="metric-value" id="resBreached">0</div>
+                                    </div>
+                                    <div class="metric-card info">
+                                        <div class="metric-label">% Cumplimiento</div>
+                                        <div class="metric-value" id="resRate">0%</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <div class="metric-label">Promedio</div>
+                                        <div class="metric-value" id="resAvgTime">0 min</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="errorMessage" class="error-message" style="display: none;">
+                    <p>⚠️ Error al cargar los datos. Verifica que:</p>
+                    <ul>
+                        <li>La VPN esté activa</li>
+                        <li>Las credenciales sean correctas</li>
+                        <li>El servidor de base de datos esté accesible</li>
+                    </ul>
+                </div>
+            </div> <!-- Cierre de reports-tab -->
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
