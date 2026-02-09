@@ -12,36 +12,8 @@ const calendarNames = {
     'extended': 'Horario Extendido (L-D, 8 AM - 10 PM)'
 };
 
-// Mapa de nombres de estados (DB -> Front display)
-const stateNameMap = {
-    // Estados de la BD colombiana (sin acentos)
-    'Recepcion': 'Recepción',
-    'Clasificacion': 'Clasificación',
-    'Diagnostico': 'Diagnóstico',
-    'En progreso': 'En Progreso',
-    'Resuelto': 'Resuelto',
-    'Cerrado': 'Cerrado',
-    'En Espera': 'En Espera',
-    'Cancelado': 'Cancelado',
-    
-    // Estados estándar alternativos (por si acaso)
-    'Nuevo': 'Nuevo',
-    'Abierto': 'Abierto',
-    'Espera': 'En Espera',
-    'Closed': 'Cerrado',
-    'Waiting': 'En Espera'
-};
-
 function mapStateName(raw) {
-    if (!raw && raw !== '') return raw;
-    const name = String(raw).trim();
-    if (stateNameMap[name]) return stateNameMap[name];
-    // Intenta comparación case-insensitive
-    const lower = name.toLowerCase();
-    for (const key of Object.keys(stateNameMap)) {
-        if (key.toLowerCase() === lower) return stateNameMap[key];
-    }
-    return name; // fallback al valor original
+    return raw;
 }
 
 // Inicializar la aplicación
@@ -117,6 +89,7 @@ function setupCalendarSelector() {
     // Mostrar panel de filtros cuando se carga la página
     loadProjects();
     loadAgents();
+    loadStates();
 }
 
 // Confirmar selección de calendario
@@ -186,6 +159,31 @@ async function loadAgents() {
     }
 }
 
+// Cargar estados disponibles con nombres exactos de BD
+function loadStates() {
+    if (!elements.stateSelect) return;
+
+    const states = [
+        { id: 'Recepcion', name: 'Recepcion' },
+        { id: 'Clasificacion', name: 'Clasificacion' },
+        { id: 'Diagnostico', name: 'Diagnostico' },
+        { id: 'En progreso', name: 'En progreso' },
+        { id: 'En Espera', name: 'En Espera' },
+        { id: 'Resuelto', name: 'Resuelto' },
+        { id: 'Cerrado', name: 'Cerrado' },
+        { id: 'Cancelado', name: 'Cancelado' }
+    ];
+
+    elements.stateSelect.innerHTML = '<option value="">Todos los estados</option>';
+
+    states.forEach(state => {
+        const option = document.createElement('option');
+        option.value = state.id;
+        option.textContent = state.name;
+        elements.stateSelect.appendChild(option);
+    });
+}
+
 // Obtener filtros actuales
 function getFilters() {
     const filters = {
@@ -199,11 +197,6 @@ function getFilters() {
     if (elements.endDate && elements.endDate.value) {
         filters.endDate = elements.endDate.value;
     }
-    
-    if (elements.projectSelect && elements.projectSelect.value) {
-        filters.projectId = parseInt(elements.projectSelect.value);
-    }
-    
     if (elements.agentSelect && elements.agentSelect.value) {
         filters.ownerId = parseInt(elements.agentSelect.value);
     }
@@ -215,6 +208,10 @@ function getFilters() {
     if (elements.ticketSearch && elements.ticketSearch.value) {
         filters.ticketNumber = elements.ticketSearch.value.trim();
     }
+
+    if (elements.projectSelect && elements.projectSelect.value) {
+    filters.organizationId = parseInt(elements.projectSelect.value);
+}
     
     return filters;
 }
@@ -379,20 +376,9 @@ function displayTicketDurations(tickets) {
     
     // Por cada ticket, crear filas para cada estado
     tickets.forEach((ticket) => {
-        const stateNameMap = {
-            'Recepcion': 'Recepción',
-            'Clasificacion': 'Clasificación',
-            'Diagnostico': 'Diagnóstico',
-            'En progreso': 'En progreso',
-            'Resuelto': 'Resuelto',
-            'Cerrado': 'Cerrado',
-            'En Espera': 'En Espera',
-            'Cancelado': 'Cancelado'
-        };
-        
         ticket.history.forEach((entry, index) => {
             const row = document.createElement('tr');
-            const displayName = stateNameMap[entry.to] || entry.to;
+            const displayName = entry.to;
             
             row.innerHTML = `
                 <td><strong>${ticket.number}</strong></td>

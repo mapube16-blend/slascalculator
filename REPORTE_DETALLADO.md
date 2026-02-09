@@ -133,24 +133,3 @@ Número | Creado en | Tipo Solicitud | Estado | Proyecto | Título | Prioridad |
 
 ---
 
-## ✨ Ventajas de usar vista_reportes_zammad
-
-✅ **Pre-calculada:** Los tiempos ya están diseñados en la vista
-✅ **Contiene responsables:** Técnico y Funcional  
-✅ **SLA incluido:** Cumplimiento y estado SLA  
-✅ **Análisis temporal:** Semanas, meses, análisis histórico  
-✅ **Performance:** Consultas optimizadas vs múltiples JOINs  
-✅ **Métricas:** Ya incluye métricas de gestión  
-
----
-
-## 🚀 Próximos Pasos
-
-1. ✅ Conectar vista en lugar de queries complejas
-2. ✅ Incluir Resp. Técnico y Funcional  
-3. ✅ Usar tiempos ya calculados  
-4. 📋 Explorar campos extras si necesita:
-   - bld_ticket_fase (Fase del ticket)
-   - bld_ticket_espera_motivo (Motivo espera)
-   - bld_responsable (Responsable personalizado)
-   - bld_prority_customer (Prioridad cliente)

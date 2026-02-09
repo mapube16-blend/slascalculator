@@ -92,14 +92,39 @@ class SLAService {
     try {
       const result = await pool.query(query, params);
       
+      // OPTIMIZACIÓN: Obtener historial de todos los tickets en una sola consulta
+      const ticketIds = result.rows.map(t => t.id);
+      let historiesMap = {};
+
+      if (ticketIds.length > 0) {
+        const historiesResult = await pool.query(`
+          SELECT 
+            o_id,
+            created_at,
+            value_from,
+            value_to
+          FROM histories 
+          WHERE o_id = ANY($1::int[])
+            AND history_attribute_id = 13
+          ORDER BY o_id, created_at ASC
+        `, [ticketIds]);
+
+        historiesResult.rows.forEach(h => {
+          if (!historiesMap[h.o_id]) historiesMap[h.o_id] = [];
+          historiesMap[h.o_id].push(h);
+        });
+      }
+
       // Procesar cada ticket para calcular tiempos laborales correctamente
       const processedTickets = await Promise.all(
         result.rows.map(async (ticket) => {
+          const ticketHistories = historiesMap[ticket.id] || [];
+
           // Calcular Tiempo Hightech: excluir Espera, Resuelto, Cerrado
-          const highTechMinutes = await this.calculateHighTechTime(ticket.id, ticket.created_at, ticket.close_at || new Date(), calendarType);
+          const highTechMinutes = await this.calculateHighTechTime(ticket.id, ticket.created_at, ticket.close_at || new Date(), calendarType, ticketHistories, ticket.state_name);
           
           // Calcular Tiempo Cliente: solo cuando está en "Espera"
-          const clientMinutes = await this.calculateClientWaitingTime(ticket.id, calendarType);
+          const clientMinutes = await this.calculateClientWaitingTime(ticket.id, calendarType, ticketHistories);
           
           return {
             ...ticket,
@@ -107,7 +132,8 @@ class SLAService {
             client_time_minutes: clientMinutes,
             hightech_time_formatted: workingHours.formatMinutes(highTechMinutes, calendarType),
             client_time_formatted: workingHours.formatMinutes(clientMinutes, calendarType),
-            empresa: this.getEmpresaNombre(ticket.bld_cliente_padre)
+            empresa: this.getEmpresaNombre(ticket.bld_cliente_padre),
+            raw_history: ticketHistories // OPTIMIZACIÓN: Devolver historial para reutilizar
           };
         })
       );
@@ -125,41 +151,35 @@ class SLAService {
    * @param {Date} startDate - Fecha de inicio
    * @param {Date} endDate - Fecha de fin
    * @param {string} calendarType - Tipo de calendario ('laboral', '24-7', 'extended')
+   * @param {Array} preFetchedHistories - (Opcional) Historial precargado para evitar queries
+   * @param {string} currentStateName - (Opcional) Estado actual para evitar queries
    */
-  async calculateHighTechTime(ticketId, startDate, endDate, calendarType = 'laboral') {
+  async calculateHighTechTime(ticketId, startDate, endDate, calendarType = 'laboral', preFetchedHistories = null, currentStateName = null) {
     try {
       if (!startDate || !endDate) {
         return 0;
       }
 
       // Obtener todos los cambios de estado del ticket
-      const histories = await pool.query(`
-        SELECT 
-          h.id,
-          h.created_at,
-          h.value_from,
-          h.value_to
-        FROM histories h
-        WHERE h.o_id = $1
-          AND h.history_attribute_id = 13
-        ORDER BY h.created_at ASC
-      `, [ticketId]);
+      let historiesRows = preFetchedHistories;
+      if (!historiesRows) {
+        const res = await pool.query(`SELECT created_at, value_from, value_to FROM histories WHERE o_id = $1 AND history_attribute_id = 13 ORDER BY created_at ASC`, [ticketId]);
+        historiesRows = res.rows;
+      }
 
       let totalHighTechMinutes = 0;
       const excludedStates = ['En Espera', 'Resuelto', 'Cerrado'];
 
-      if (histories.rows.length === 0) {
+      if (historiesRows.length === 0) {
         // Si no hay historial de cambios, el ticket nunca cambió de estado
         // Obtener estado del ticket para saber si contar tiempo
-        const ticketResult = await pool.query(`
-          SELECT ts.name as state_name
-          FROM tickets t
-          JOIN ticket_states ts ON t.state_id = ts.id
-          WHERE t.id = $1
-        `, [ticketId]);
+        let stateName = currentStateName;
+        if (!stateName) {
+          const ticketResult = await pool.query(`SELECT ts.name as state_name FROM tickets t JOIN ticket_states ts ON t.state_id = ts.id WHERE t.id = $1`, [ticketId]);
+          if (ticketResult.rows.length > 0) stateName = ticketResult.rows[0].state_name;
+        }
 
-        if (ticketResult.rows.length > 0) {
-          const stateName = ticketResult.rows[0].state_name;
+        if (stateName) {
           // Si el estado actual no está excluido, contar todo el tiempo
           if (!excludedStates.includes(stateName)) {
             totalHighTechMinutes = workingHours.calculateWorkingMinutes(startDate, endDate, calendarType);
@@ -171,8 +191,8 @@ class SLAService {
       // Si hay historial, procesar cada cambio de estado
       let currentPeriodStart = startDate;
       
-      for (let i = 0; i < histories.rows.length; i++) {
-        const change = histories.rows[i];
+      for (let i = 0; i < historiesRows.length; i++) {
+        const change = historiesRows[i];
         
         // Contar tiempo del estado ANTERIOR a este cambio
         // Si el estado anterior no está excluido, sumamos el tiempo desde currentPeriodStart hasta el cambio
@@ -186,20 +206,18 @@ class SLAService {
       }
 
       // Procesar el último período (desde el último cambio hasta el fin)
-      const lastChange = histories.rows[histories.rows.length - 1];
+      // const lastChange = historiesRows[historiesRows.length - 1]; // No se usa directamente, pero el estado actual es el que importa
       
       // Obtener estado actual del ticket
-      const currentStateResult = await pool.query(`
-        SELECT ts.name as state_name
-        FROM tickets t
-        JOIN ticket_states ts ON t.state_id = ts.id
-        WHERE t.id = $1
-      `, [ticketId]);
+      let currentTicketState = currentStateName;
+      if (!currentTicketState) {
+        const currentStateResult = await pool.query(`SELECT ts.name as state_name FROM tickets t JOIN ticket_states ts ON t.state_id = ts.id WHERE t.id = $1`, [ticketId]);
+        if (currentStateResult.rows.length > 0) currentTicketState = currentStateResult.rows[0].state_name;
+      }
 
-      if (currentStateResult.rows.length > 0) {
-        const currentStateName = currentStateResult.rows[0].state_name;
+      if (currentTicketState) {
         // Si el estado actual (que es el value_to del último cambio) no está excluido
-        if (!excludedStates.includes(currentStateName)) {
+        if (!excludedStates.includes(currentTicketState)) {
           const periodMinutes = workingHours.calculateWorkingMinutes(currentPeriodStart, endDate, calendarType);
           totalHighTechMinutes += periodMinutes;
         }
@@ -216,27 +234,23 @@ class SLAService {
    * Calcular Tiempo Cliente: suma de todos los períodos en estado "Espera"
    * @param {number} ticketId - ID del ticket
    * @param {string} calendarType - Tipo de calendario ('laboral', '24-7', 'extended')
+   * @param {Array} preFetchedHistories - (Opcional) Historial precargado
    */
-  async calculateClientWaitingTime(ticketId, calendarType = 'laboral') {
+  async calculateClientWaitingTime(ticketId, calendarType = 'laboral', preFetchedHistories = null) {
     try {
-      const histories = await pool.query(`
-        SELECT 
-          h.created_at,
-          h.value_from,
-          h.value_to
-        FROM histories h
-        WHERE h.o_id = $1
-          AND h.history_attribute_id = 13
-        ORDER BY h.created_at ASC
-      `, [ticketId]);
+      let historiesRows = preFetchedHistories;
+      if (!historiesRows) {
+        const res = await pool.query(`SELECT created_at, value_from, value_to FROM histories WHERE o_id = $1 AND history_attribute_id = 13 ORDER BY created_at ASC`, [ticketId]);
+        historiesRows = res.rows;
+      }
 
       let totalWaitingMinutes = 0;
       const waitStates = ['En Espera'];
       let waitingStart = null;
 
       // Procesar cada cambio de estado
-      for (let i = 0; i < histories.rows.length; i++) {
-        const change = histories.rows[i];
+      for (let i = 0; i < historiesRows.length; i++) {
+        const change = historiesRows[i];
 
         // Si entra en estado de espera
         if (waitStates.includes(change.value_to) && !waitingStart) {
@@ -419,9 +433,9 @@ class SLAService {
   async getProjects() {
     try {
       const result = await pool.query(`
-        SELECT DISTINCT o.id, o.name
+        SELECT id, name
         FROM organizations o
-        INNER JOIN tickets t ON t.organization_id = o.id
+        WHERE o.active = true
         ORDER BY o.name
       `);
       
@@ -550,6 +564,19 @@ class SLAService {
           const isWaiting = waitStates.includes(stateAtPeriod);
           
           const duration = workingHours.calculateWorkingMinutes(periodStart, periodEnd, calendarType);
+
+          
+            console.log('═══════════════════════════════════');
+            console.log('Ticket:', ticket.number);
+            console.log('Estado:', stateAtPeriod);
+            console.log('Inicio:', moment(periodStart).format('YYYY-MM-DD HH:mm:ss'));
+            console.log('Fin:', moment(periodEnd).format('YYYY-MM-DD HH:mm:ss'));
+            console.log('Duración calculada:', duration, 'minutos');
+            console.log('Calendar Type:', calendarType);
+            console.log('═══════════════════════════════════');
+          
+
+          
           
           if (isHighTech) {
             totalHighTechMinutes += duration;
@@ -635,36 +662,14 @@ class SLAService {
       return [];
     }
 
-    const ticketIds = tickets.map(t => t.id);
-
-    // Obtener todos los historiales de cambios para estos tickets en una sola query
-    const historiesResult = await pool.query(`
-      SELECT 
-        h.o_id as ticket_id,
-        h.created_at,
-        h.value_from,
-        h.value_to
-      FROM histories h
-      WHERE h.o_id = ANY($1::int[])
-        AND h.history_attribute_id = 13
-      ORDER BY h.o_id, h.created_at ASC
-    `, [ticketIds]);
-
-    const historiesByTicketId = {};
-    historiesResult.rows.forEach(row => {
-      if (!historiesByTicketId[row.ticket_id]) {
-        historiesByTicketId[row.ticket_id] = [];
-      }
-      historiesByTicketId[row.ticket_id].push(row);
-    });
-
     const excludedStates = ['Resuelto', 'Cerrado'];
     const waitStates = ['En Espera'];
 
     // Procesar cada ticket para obtener duraciones por estado
     const processedTickets = await Promise.all(
       tickets.map(async (ticket) => {
-        const histories = historiesByTicketId[ticket.id] || [];
+        // OPTIMIZACIÓN: Usar el historial que ya trajo getTicketsWithSLA
+        const histories = ticket.raw_history || [];
         const stateHistory = [];
 
         if (histories.length === 0) {

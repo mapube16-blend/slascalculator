@@ -13,8 +13,6 @@ class WorkingHoursService {
   constructor() {
     // Configurar días festivos de Colombia (para usar en calendarios que los requieran)
     this.setupColombianHolidays();
-    // Inicializar con calendario laboral por defecto
-    this.setCalendarType('laboral');
   }
 
   /**
@@ -58,51 +56,43 @@ class WorkingHoursService {
    * Seleccionar tipo de calendario y ajustar parámetros
    * @param {string} calendarType - 'laboral', '24-7', 'extended'
    */
-  setCalendarType(calendarType) {
-    this.calendarType = calendarType || 'laboral';
+  getCalendarConfig(calendarType) {
+    const type = calendarType || 'laboral';
+    const config = {
+      type: type,
+      holidayDates: this.holidayDates
+    };
     
-    switch(this.calendarType) {
+    switch(type) {
       case 'laboral':
-        this.workStartHour = 8;      // 8 AM
-        this.workEndHour = 17;       // 5 PM
-        this.hoursPerDay = 9;        // 9 horas
-        this.workingDays = [1, 2, 3, 4, 5]; // Lunes a Viernes
-        this.excludeHolidays = true;
+        config.workStartHour = 8;      // 8 AM
+        config.workEndHour = 17;       // 5 PM
+        config.hoursPerDay = 9;        // 9 horas
+        config.workingDays = [1, 2, 3, 4, 5]; // Lunes a Viernes
+        config.excludeHolidays = true;
         break;
       
       case '24-7':
-        this.workStartHour = 0;      // 12 AM
-        this.workEndHour = 24;       // 11:59 PM
-        this.hoursPerDay = 24;       // 24 horas
-        this.workingDays = [0, 1, 2, 3, 4, 5, 6]; // Todos los días
-        this.excludeHolidays = false; // No excluir festivos
+        config.workStartHour = 0;      // 12 AM
+        config.workEndHour = 24;       // 11:59 PM
+        config.hoursPerDay = 24;       // 24 horas
+        config.workingDays = [0, 1, 2, 3, 4, 5, 6]; // Todos los días
+        config.excludeHolidays = false; // No excluir festivos
         break;
       
       case 'extended':
-        this.workStartHour = 8;      // 8 AM
-        this.workEndHour = 22;       // 10 PM
-        this.hoursPerDay = 14;       // 14 horas
-        this.workingDays = [0, 1, 2, 3, 4, 5, 6]; // Todos los días (incluyendo fin de semana)
-        this.excludeHolidays = false; // No excluir festivos
+        config.workStartHour = 8;      // 8 AM
+        config.workEndHour = 22;       // 10 PM
+        config.hoursPerDay = 14;       // 14 horas
+        config.workingDays = [0, 1, 2, 3, 4, 5, 6]; // Todos los días (incluyendo fin de semana)
+        config.excludeHolidays = false; // No excluir festivos
         break;
       
       default:
-        this.setCalendarType('laboral');
-        return;
+        return this.getCalendarConfig('laboral');
     }
     
-    // Actualizar configuración de moment-business-days
-    if (this.excludeHolidays) {
-      moment.updateLocale('es', {
-        holidays: this.holidayDates,
-        workingWeekdays: this.workingDays
-      });
-    } else {
-      moment.updateLocale('es', {
-        holidays: [],
-        workingWeekdays: this.workingDays
-      });
-    }
+    return config;
   }
 
   /**
@@ -112,59 +102,62 @@ class WorkingHoursService {
    * @param {string} calendarType - Tipo de calendario ('laboral', '24-7', 'extended')
    * @returns {number} Minutos laborales
    */
-  calculateWorkingMinutes(startDate, endDate, calendarType = 'laboral') {
+calculateWorkingMinutes(startDate, endDate, calendarType = 'laboral') {
     if (!startDate || !endDate) {
       return 0;
     }
 
-    // Establecer el tipo de calendario para este cálculo
-    this.setCalendarType(calendarType);
+    const config = this.getCalendarConfig(calendarType);
 
-    const start = moment(startDate);
-    const end = moment(endDate);
+    // 1. Tomamos la fecha
+    // 2. Restamos 5 horas para corregir el error de guardado de la DB
+    // 3. Aplicamos utcOffset(-5) para ponerlo en hora colombiana
+    const start = moment(startDate).subtract(5, 'hours').utcOffset(-5);
+    const end = moment(endDate).subtract(5, 'hours').utcOffset(-5);
 
-    // Si end es antes que start, retornar 0
+    // LOG PARA TU TRANQUILIDAD (Verás que ahora sí cuadra con 17:43)
+    console.log(`🔎 Ajuste: ${moment(startDate).format('HH:mm')} (DB) -> ${start.format('HH:mm')} (Real)`);
+
     if (end.isBefore(start)) {
       return 0;
     }
 
     // Si es la misma fecha, calcular solo horas dentro del horario laboral
     if (start.format('YYYY-MM-DD') === end.format('YYYY-MM-DD')) {
-      return this.calculateMinutesInSameDay(start, end);
+      return this.calculateMinutesInSameDay(start, end, config);
     }
 
     // Caso contrario, sumar días completos + fracciones de primer y último día
     let totalMinutes = 0;
 
     // Minutos restantes del primer día
-    const firstDayMinutes = this.calculateMinutesUntilEndOfDay(start);
+    const firstDayMinutes = this.calculateMinutesUntilEndOfDay(start, config);
     totalMinutes += firstDayMinutes;
 
     // Días completos laborales (excluyendo primer y último día)
     let currentDay = moment(start).add(1, 'day');
     while (currentDay.format('YYYY-MM-DD') < end.format('YYYY-MM-DD')) {
-      if (this.isWorkingDay(currentDay)) {
-        totalMinutes += this.hoursPerDay * 60;
+      if (this.isWorkingDay(currentDay, config)) {
+        totalMinutes += config.hoursPerDay * 60;
       }
       currentDay.add(1, 'day');
     }
 
     // Minutos desde inicio del día hasta la hora final del último día
-    const lastDayMinutes = this.calculateMinutesFromStartOfDay(end);
+    const lastDayMinutes = this.calculateMinutesFromStartOfDay(end, config);
     totalMinutes += lastDayMinutes;
 
     return Math.round(totalMinutes);
   }
-
   /**
    * Calcular minutos laborales en el mismo día
    */
-  calculateMinutesInSameDay(startTime, endTime) {
+  calculateMinutesInSameDay(startTime, endTime, config) {
     const start = moment(startTime);
     const end = moment(endTime);
 
     // Si no es día laboral, retornar 0
-    if (!this.isWorkingDay(start)) {
+    if (!this.isWorkingDay(start, config)) {
       return 0;
     }
 
@@ -175,14 +168,14 @@ class WorkingHoursService {
     let endMinute = end.minute();
 
     // Si comienza antes del horario laboral
-    if (startHour < this.workStartHour) {
-      startHour = this.workStartHour;
+    if (startHour < config.workStartHour) {
+      startHour = config.workStartHour;
       startMinute = 0;
     }
 
     // Si termina después del horario laboral
-    if (endHour > this.workEndHour || (endHour === this.workEndHour && endMinute > 0)) {
-      endHour = this.workEndHour;
+    if (endHour > config.workEndHour || (endHour === config.workEndHour && endMinute > 0)) {
+      endHour = config.workEndHour;
       endMinute = 0;
     }
 
@@ -196,10 +189,10 @@ class WorkingHoursService {
   /**
    * Calcular minutos desde inicio del día laboral hasta cierta hora
    */
-  calculateMinutesFromStartOfDay(time) {
+  calculateMinutesFromStartOfDay(time, config) {
     const m = moment(time);
 
-    if (!this.isWorkingDay(m)) {
+    if (!this.isWorkingDay(m, config)) {
       return 0;
     }
 
@@ -207,26 +200,26 @@ class WorkingHoursService {
     let minute = m.minute();
 
     // Si es antes del inicio del horario laboral
-    if (hour < this.workStartHour) {
+    if (hour < config.workStartHour) {
       return 0;
     }
 
     // Si es después del final del horario laboral
-    if (hour >= this.workEndHour) {
-      return this.hoursPerDay * 60;
+    if (hour >= config.workEndHour) {
+      return config.hoursPerDay * 60;
     }
 
     // Está dentro del horario laboral
-    return (hour - this.workStartHour) * 60 + minute;
+    return (hour - config.workStartHour) * 60 + minute;
   }
 
   /**
    * Calcular minutos desde cierta hora hasta fin del día laboral
    */
-  calculateMinutesUntilEndOfDay(time) {
+  calculateMinutesUntilEndOfDay(time, config) {
     const m = moment(time);
 
-    if (!this.isWorkingDay(m)) {
+    if (!this.isWorkingDay(m, config)) {
       return 0;
     }
 
@@ -234,34 +227,34 @@ class WorkingHoursService {
     let minute = m.minute();
 
     // Si es antes del inicio del horario laboral
-    if (hour < this.workStartHour) {
-      return this.hoursPerDay * 60;
+    if (hour < config.workStartHour) {
+      return config.hoursPerDay * 60;
     }
 
     // Si es después del final del horario laboral
-    if (hour >= this.workEndHour) {
+    if (hour >= config.workEndHour) {
       return 0;
     }
 
     // Está dentro del horario laboral
-    return (this.workEndHour - hour) * 60 - minute;
+    return (config.workEndHour - hour) * 60 - minute;
   }
 
   /**
    * Verificar si es día laboral según el calendario actual
    */
-  isWorkingDay(date) {
+  isWorkingDay(date, config) {
     const m = moment(date);
     
     // Verificar si el día está en la lista de días laborales
     const dayOfWeek = m.day(); // 0 = Domingo, 1 = Lunes, etc.
     
-    if (!this.workingDays.includes(dayOfWeek)) {
+    if (!config.workingDays.includes(dayOfWeek)) {
       return false;
     }
 
     // Verificar si es festivo (solo si excluimos festivos)
-    if (this.excludeHolidays && this.holidayDates.includes(m.format('YYYY-MM-DD'))) {
+    if (config.excludeHolidays && config.holidayDates.includes(m.format('YYYY-MM-DD'))) {
       return false;
     }
 
@@ -285,14 +278,7 @@ class WorkingHoursService {
    * Obtener información sobre el calendario actual
    */
   getCalendarInfo() {
-    return {
-      type: this.calendarType,
-      startHour: this.workStartHour,
-      endHour: this.workEndHour,
-      hoursPerDay: this.hoursPerDay,
-      workingDays: this.workingDays,
-      excludeHolidays: this.excludeHolidays
-    };
+    return this.getCalendarConfig('laboral');
   }
 }
 
