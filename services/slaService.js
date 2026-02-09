@@ -2,11 +2,58 @@ const { pool } = require('../config/database');
 const moment = require('moment');
 const workingHours = require('./workingHoursService');
 
+// CONFIGURACIÓN DE SLAs (Reglas de Negocio)
+// Tiempos en minutos laborales
+const SLA_CONFIG = {
+  // Tiempos para Incidentes
+  'incidente': {
+    // 1. Crítico (Inferior a 1 hora / 28 horas)
+    '1': { firstResponse: 60, resolution: 1680 },
+    'critico': { firstResponse: 60, resolution: 1680 },
+    
+    // 2. Urgente o Alto (Inferior a 2 horas / 44 horas)
+    '2': { firstResponse: 120, resolution: 2640 },
+    'alto': { firstResponse: 120, resolution: 2640 },
+    'urgente': { firstResponse: 120, resolution: 2640 },
+    'alta': { firstResponse: 120, resolution: 2640 }, // Compatibilidad con nombres anteriores
+
+    // 3. Ordinarias o Medio (Inferior a 4 horas / 56 horas)
+    '3': { firstResponse: 240, resolution: 3360 },
+    'medio': { firstResponse: 240, resolution: 3360 },
+    'ordinaria': { firstResponse: 240, resolution: 3360 },
+    'media': { firstResponse: 240, resolution: 3360 }, // Compatibilidad
+
+    // 4. Leves o Bajo (Inferior a 8 horas / 80 horas)
+    '4': { firstResponse: 480, resolution: 4800 },
+    'bajo': { firstResponse: 480, resolution: 4800 },
+    'leve': { firstResponse: 480, resolution: 4800 },
+    'baja': { firstResponse: 480, resolution: 4800 }, // Compatibilidad
+
+    // 5. Planeado (Inferior a 8 horas / 176 horas)
+    '5': { firstResponse: 480, resolution: 10560 },
+    'planeado': { firstResponse: 480, resolution: 10560 }
+  },
+  // Tiempos para Requerimientos
+  'requerimiento': {
+    // Se aplican las mismas reglas que para incidentes por ahora
+    'critico': { firstResponse: 60, resolution: 1680 },
+    'alto': { firstResponse: 120, resolution: 2640 },
+    'medio': { firstResponse: 240, resolution: 3360 },
+    'bajo': { firstResponse: 480, resolution: 4800 },
+    'planeado': { firstResponse: 480, resolution: 10560 }
+  },
+  // Configuración por defecto (si no coincide tipo/prioridad)
+  'default': {
+    firstResponse: 240, // 4 horas
+    resolution: 3360    // 56 horas (Medio)
+  }
+};
+
 class SLAService {
   
   // Obtener todos los tickets con información completa desde tabla tickets
   async getTicketsWithSLA(filters = {}) {
-    const { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType = 'laboral' } = filters;
+    const { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType = 'laboral', type } = filters;
     
     let query = `
       SELECT 
@@ -86,6 +133,12 @@ class SLAService {
       params.push(ticketNumber);
       paramCount++;
     }
+
+    if (type) {
+      query += ` AND t.type = $${paramCount}`;
+      params.push(type);
+      paramCount++;
+    }
     
     query += ` ORDER BY t.created_at DESC`;
     
@@ -96,23 +149,30 @@ class SLAService {
       const ticketIds = result.rows.map(t => t.id);
       let historiesMap = {};
 
-      if (ticketIds.length > 0) {
-        const historiesResult = await pool.query(`
-          SELECT 
-            o_id,
-            created_at,
-            value_from,
-            value_to
-          FROM histories 
-          WHERE o_id = ANY($1::int[])
-            AND history_attribute_id = 13
-          ORDER BY o_id, created_at ASC
-        `, [ticketIds]);
+      if (ticketIds && ticketIds.length > 0) {
+        // Procesar en lotes para evitar saturar la conexión (Connection terminated unexpectedly)
+        const batchSize = 200; // Procesar de a 200 tickets
+        
+        for (let i = 0; i < ticketIds.length; i += batchSize) {
+          const batchIds = ticketIds.slice(i, i + batchSize);
+          
+          const historiesResult = await pool.query(`
+            SELECT 
+              o_id,
+              created_at,
+              value_from,
+              value_to
+            FROM histories 
+            WHERE o_id = ANY($1::int[])
+              AND history_attribute_id = 13
+            ORDER BY o_id, created_at ASC
+          `, [batchIds]);
 
-        historiesResult.rows.forEach(h => {
-          if (!historiesMap[h.o_id]) historiesMap[h.o_id] = [];
-          historiesMap[h.o_id].push(h);
-        });
+          historiesResult.rows.forEach(h => {
+            if (!historiesMap[h.o_id]) historiesMap[h.o_id] = [];
+            historiesMap[h.o_id].push(h);
+          });
+        }
       }
 
       // Procesar cada ticket para calcular tiempos laborales correctamente
@@ -124,14 +184,30 @@ class SLAService {
           const highTechMinutes = await this.calculateHighTechTime(ticket.id, ticket.created_at, ticket.close_at || new Date(), calendarType, ticketHistories, ticket.state_name);
           
           // Calcular Tiempo Cliente: solo cuando está en "Espera"
-          const clientMinutes = await this.calculateClientWaitingTime(ticket.id, calendarType, ticketHistories);
+          const clientMinutes = await this.calculateClientWaitingTime(ticket.id, calendarType, ticketHistories, ticket.created_at);
+
+          // Calcular Tiempo Primera Respuesta
+          const firstResponseMinutes = await this.calculateFirstResponseTime(ticket.id, ticket.created_at, calendarType, ticketHistories);
+
+          // EVALUAR SLA
+          const slaTargets = this.getSLATargets(ticket.type, ticket.priority_name);
+          
+          const firstResponseMet = firstResponseMinutes <= slaTargets.firstResponse;
+          const resolutionMet = highTechMinutes <= slaTargets.resolution;
           
           return {
             ...ticket,
             hightech_time_minutes: highTechMinutes,
             client_time_minutes: clientMinutes,
+            first_response_time_minutes: firstResponseMinutes,
             hightech_time_formatted: workingHours.formatMinutes(highTechMinutes, calendarType),
             client_time_formatted: workingHours.formatMinutes(clientMinutes, calendarType),
+            
+            // Resultados de SLA
+            sla_config: slaTargets,
+            first_response_sla_met: firstResponseMet,
+            resolution_sla_met: resolutionMet,
+            
             empresa: this.getEmpresaNombre(ticket.bld_cliente_padre),
             raw_history: ticketHistories // OPTIMIZACIÓN: Devolver historial para reutilizar
           };
@@ -235,8 +311,9 @@ class SLAService {
    * @param {number} ticketId - ID del ticket
    * @param {string} calendarType - Tipo de calendario ('laboral', '24-7', 'extended')
    * @param {Array} preFetchedHistories - (Opcional) Historial precargado
+   * @param {Date} ticketCreatedAt - (Opcional) Fecha de creación para calcular espera inicial
    */
-  async calculateClientWaitingTime(ticketId, calendarType = 'laboral', preFetchedHistories = null) {
+  async calculateClientWaitingTime(ticketId, calendarType = 'laboral', preFetchedHistories = null, ticketCreatedAt = null) {
     try {
       let historiesRows = preFetchedHistories;
       if (!historiesRows) {
@@ -247,6 +324,15 @@ class SLAService {
       let totalWaitingMinutes = 0;
       const waitStates = ['En Espera'];
       let waitingStart = null;
+
+      // CORRECCIÓN: Verificar si el ticket nació en estado de espera (periodo inicial)
+      if (historiesRows.length > 0 && ticketCreatedAt) {
+        const firstChange = historiesRows[0];
+        if (waitStates.includes(firstChange.value_from)) {
+          const initialWait = workingHours.calculateWorkingMinutes(ticketCreatedAt, firstChange.created_at, calendarType);
+          totalWaitingMinutes += initialWait;
+        }
+      }
 
       // Procesar cada cambio de estado
       for (let i = 0; i < historiesRows.length; i++) {
@@ -277,6 +363,59 @@ class SLAService {
       console.error('Error calculando Tiempo Cliente:', error);
       return 0;
     }
+  }
+
+  /**
+   * Calcular Tiempo de Primera Respuesta (Creación -> Primer cambio de estado relevante)
+   */
+  async calculateFirstResponseTime(ticketId, createdAt, calendarType, preFetchedHistories = null) {
+    try {
+      let historiesRows = preFetchedHistories;
+      if (!historiesRows) {
+        const res = await pool.query(`SELECT created_at FROM histories WHERE o_id = $1 AND history_attribute_id = 13 ORDER BY created_at ASC LIMIT 1`, [ticketId]);
+        historiesRows = res.rows;
+      }
+
+      if (historiesRows.length > 0) {
+        // El primer cambio de estado se considera la primera respuesta/atención
+        const firstInteraction = historiesRows[0].created_at;
+        return workingHours.calculateWorkingMinutes(createdAt, firstInteraction, calendarType);
+      }
+
+      // Si no hay historial, calcular tiempo hasta ahora (ticket sin tocar)
+      return workingHours.calculateWorkingMinutes(createdAt, new Date(), calendarType);
+
+    } catch (error) {
+      console.error('Error calculando Primera Respuesta:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Obtener objetivos de SLA según Tipo y Prioridad
+   */
+  getSLATargets(type, priority) {
+    const typeKey = (type || '').toLowerCase();
+    const priorityKey = (priority || '').toLowerCase();
+
+    // Intentar coincidencia exacta
+    if (SLA_CONFIG[typeKey] && SLA_CONFIG[typeKey][priorityKey]) {
+      return SLA_CONFIG[typeKey][priorityKey];
+    }
+
+    // Intentar coincidencia parcial en prioridad (ej: "2 media" vs "media")
+    if (SLA_CONFIG[typeKey]) {
+      const priorities = Object.keys(SLA_CONFIG[typeKey]);
+      const match = priorities.find(p => priorityKey.includes(p) || p.includes(priorityKey));
+      if (match) {
+        return SLA_CONFIG[typeKey][match];
+      }
+      // Si hay tipo pero no prioridad, usar la primera o una default del tipo
+      // Por ahora devolvemos default global
+    }
+
+    // Si no hay coincidencia, usar default
+    return SLA_CONFIG['default'];
   }
 
   /**
@@ -327,7 +466,7 @@ class SLAService {
       
       // Métricas de primera respuesta
       first_response: {
-        total_with_sla: tickets.filter(t => t.first_response_escalation_at).length,
+        total_with_sla: tickets.length, // Asumimos que todos tienen SLA configurado por defecto
         met: tickets.filter(t => t.first_response_sla_met === true).length,
         breached: tickets.filter(t => t.first_response_sla_met === false).length,
         compliance_rate: 0,
@@ -336,7 +475,7 @@ class SLAService {
       
       // Métricas de resolución
       resolution: {
-        total_with_sla: tickets.filter(t => t.close_escalation_at).length,
+        total_with_sla: tickets.length,
         met: tickets.filter(t => t.resolution_sla_met === true).length,
         breached: tickets.filter(t => t.resolution_sla_met === false).length,
         compliance_rate: 0,
@@ -363,7 +502,7 @@ class SLAService {
     
     // Calcular tiempos promedio
     const firstResponseTimes = tickets
-      .filter(t => t.first_response_time_minutes !== null)
+      .filter(t => t.first_response_time_minutes > 0)
       .map(t => t.first_response_time_minutes);
     
     if (firstResponseTimes.length > 0) {
@@ -372,8 +511,8 @@ class SLAService {
     }
     
     const resolutionTimes = tickets
-      .filter(t => t.resolution_time_minutes !== null)
-      .map(t => t.resolution_time_minutes);
+      .filter(t => t.hightech_time_minutes > 0) // Usamos hightech como tiempo de resolución
+      .map(t => t.hightech_time_minutes);
     
     if (resolutionTimes.length > 0) {
       metrics.resolution.avg_time_minutes = 
@@ -470,6 +609,22 @@ class SLAService {
     }
   }
 
+  // Obtener lista de tipos de tickets
+  async getTicketTypes() {
+    try {
+      const result = await pool.query(`
+        SELECT DISTINCT type
+        FROM tickets
+        WHERE type IS NOT NULL AND type != ''
+        ORDER BY type
+      `);
+      return result.rows.map(row => row.type);
+    } catch (error) {
+      console.error('Error en getTicketTypes:', error);
+      return [];
+    }
+  }
+
   /**
    * Obtener historial detallado de estados de un ticket
    * Muestra cada cambio de estado con duración en minutos laborales
@@ -542,14 +697,35 @@ class SLAService {
         stateHistory.push({
           from: null,
           to: ticket.current_state,
-          startTime: moment(ticket.created_at).format('YYYY-MM-DD HH:mm:ss'),
-          endTime: moment(endTime).format('YYYY-MM-DD HH:mm:ss'),
+          startTime: moment(ticket.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+          endTime: moment(endTime).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
           durationMinutes: duration,
           durationFormatted: workingHours.formatMinutes(duration, calendarType),
           type: isWaiting ? 'Cliente' : (isHighTech ? 'Empresa' : 'Excluido')
         });
       } else {
         // Procesar cada período de estado
+        
+        // 1. CORRECCIÓN: Agregar periodo inicial (Creación -> Primer cambio)
+        const firstChange = histories[0];
+        const initialDuration = workingHours.calculateWorkingMinutes(ticket.created_at, firstChange.created_at, calendarType);
+        const initialState = firstChange.value_from || 'Nuevo'; // Asumir Nuevo si es null
+        const isInitialHighTech = !excludedStates.includes(initialState);
+        const isInitialWaiting = waitStates.includes(initialState);
+
+        if (isInitialHighTech) totalHighTechMinutes += initialDuration;
+        if (isInitialWaiting) totalClientMinutes += initialDuration;
+
+        stateHistory.push({
+          from: null,
+          to: initialState,
+          startTime: moment(ticket.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+          endTime: moment(firstChange.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+          durationMinutes: initialDuration,
+          durationFormatted: workingHours.formatMinutes(initialDuration, calendarType),
+          type: isInitialWaiting ? 'Cliente' : (isInitialHighTech ? 'Empresa' : 'Excluido')
+        });
+
         for (let i = 0; i < histories.length; i++) {
           const change = histories[i];
           const nextChange = histories[i + 1];
@@ -588,8 +764,8 @@ class SLAService {
           stateHistory.push({
             from: change.value_from,
             to: stateAtPeriod,
-            startTime: moment(periodStart).format('YYYY-MM-DD HH:mm:ss'),
-            endTime: moment(periodEnd).format('YYYY-MM-DD HH:mm:ss'),
+            startTime: moment(periodStart).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+            endTime: moment(periodEnd).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
             durationMinutes: duration,
             durationFormatted: workingHours.formatMinutes(duration, calendarType),
             type: isWaiting ? 'Cliente' : (isHighTech ? 'Empresa' : 'Excluido')
@@ -614,8 +790,8 @@ class SLAService {
           stateHistory.push({
             from: lastChange.value_to,
             to: ticket.current_state,
-            startTime: moment(lastChange.created_at).format('YYYY-MM-DD HH:mm:ss'),
-            endTime: moment(endTime).format('YYYY-MM-DD HH:mm:ss'),
+            startTime: moment(lastChange.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+            endTime: moment(endTime).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
             durationMinutes: duration,
             durationFormatted: workingHours.formatMinutes(duration, calendarType),
             type: isWaiting ? 'Cliente' : (isHighTech ? 'Empresa' : 'Excluido'),
@@ -628,8 +804,8 @@ class SLAService {
         ticket: {
           number: ticket.number,
           title: ticket.title,
-          created: moment(ticket.created_at).format('YYYY-MM-DD HH:mm:ss'),
-          closed: ticket.close_at ? moment(ticket.close_at).format('YYYY-MM-DD HH:mm:ss') : 'Abierto',
+          created: moment(ticket.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+          closed: ticket.close_at ? moment(ticket.close_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss') : 'Abierto',
           currentState: ticket.current_state,
           organization: ticket.organization_name,
           empresa: this.getEmpresaNombre(ticket.bld_cliente_padre),
@@ -685,6 +861,23 @@ class SLAService {
           });
         } else {
           // Procesar cada período de estado
+          
+          // 1. CORRECCIÓN: Agregar periodo inicial (Creación -> Primer cambio)
+          const firstChange = histories[0];
+          const initialDuration = workingHours.calculateWorkingMinutes(ticket.created_at, firstChange.created_at, calendarType);
+          const initialState = firstChange.value_from || 'Nuevo';
+          
+          // Solo agregar si tiene duración relevante (opcional, pero consistente con la tabla)
+          stateHistory.push({
+            from: null,
+            to: initialState,
+            durationMinutes: initialDuration,
+            durationFormatted: workingHours.formatMinutes(initialDuration, calendarType),
+            startTime: moment(ticket.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+            endTime: moment(firstChange.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss')
+          });
+
+          // 2. Procesar cambios subsiguientes
           for (let i = 0; i < histories.length; i++) {
             const change = histories[i];
             const nextChange = histories[i + 1];
@@ -709,7 +902,9 @@ class SLAService {
               from: change.value_from,
               to: stateAtPeriod,
               durationMinutes: duration,
-              durationFormatted: workingHours.formatMinutes(duration, calendarType)
+              durationFormatted: workingHours.formatMinutes(duration, calendarType),
+              startTime: moment(periodStart).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+              endTime: moment(periodEnd).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss')
             });
           }
         }
@@ -722,7 +917,13 @@ class SLAService {
           created_at: ticket.created_at,
           close_at: ticket.close_at,
           state_name: ticket.state_name,
-          history: stateHistory
+          history: stateHistory,
+          hightech_time_minutes: ticket.hightech_time_minutes,
+          bld_responsable: ticket.bld_responsable,
+          first_response_time_minutes: ticket.first_response_time_minutes,
+          sla_config: ticket.sla_config,
+          first_response_sla_met: ticket.first_response_sla_met,
+          resolution_sla_met: ticket.resolution_sla_met
         };
       })
     );

@@ -62,6 +62,17 @@ router.post('/tickets-with-durations', async (req, res) => {
   }
 });
 
+
+router.get('/ticket-types', async (req, res) => {
+  try {
+    const types = await slaService.getTicketTypes();
+    res.json({ success: true, data: types });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+
 // Obtener historial detallado de estados de un ticket
 router.get('/ticket-history/:number', async (req, res) => {
   try {
@@ -102,6 +113,41 @@ router.post('/generate-report', async (req, res) => {
   } catch (error) {
     console.error('Error al generar reporte:', error);
     res.status(500).json({ success: false, error: 'Error al generar reporte' });
+  }
+});
+
+// Generar reporte Excel filtrado (desde modal)
+router.post('/generate-filtered-report', async (req, res) => {
+  try {
+    const { slaType, slaStatus, ...filters } = req.body;
+    
+    // Obtener todos los tickets con los filtros base
+    const tickets = await slaService.getTicketsWithSLA(filters);
+    
+    // Filtrar en memoria según el tipo de SLA y estado
+    const filteredTickets = tickets.filter(t => {
+      if (slaType === 'first_response') {
+        return slaStatus === 'met' ? t.first_response_sla_met === true : t.first_response_sla_met === false;
+      } else if (slaType === 'resolution') {
+        return slaStatus === 'met' ? t.resolution_sla_met === true : t.resolution_sla_met === false;
+      }
+      return true;
+    });
+    
+    // Generar Excel solo con la lista
+    const workbook = await excelService.generateTicketsListReport(filteredTickets);
+    
+    // Configurar respuesta
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=SLA_Filtered_${Date.now()}.xlsx`);
+    
+    // Enviar archivo
+    await workbook.xlsx.write(res);
+    res.end();
+    
+  } catch (error) {
+    console.error('Error al generar reporte filtrado:', error);
+    res.status(500).json({ success: false, error: 'Error al generar reporte filtrado' });
   }
 });
 

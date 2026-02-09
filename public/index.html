@@ -9,8 +9,11 @@
 <body>
     <div class="container">
         <header class="header">
-            <h1>📊 Reportes de SLA - Zammad</h1>
-            <p class="subtitle">Sistema de análisis y generación de reportes personalizados</p>
+            <img src="img/logo.png" alt="Logo Empresa" class="header-logo">
+            <div class="header-text">
+                <h1>Reportes de SLA - Zammad</h1>
+                <p class="subtitle">Sistema de análisis y generación de reportes personalizados</p>
+            </div>
         </header>
 
         <div class="main-content">
@@ -111,6 +114,14 @@
                     </select>
                 </div>
 
+                <div class="filter-group">
+                    <label for="typeSelect">Tipo de Solicitud:</label>
+                    <select id="typeSelect" class="input-field">
+                        <option value="">Todos los tipos</option>
+                    </select>
+                </div>
+
+
                 <div class="button-group">
                     <button id="btnLoadMetrics" class="btn btn-primary">
                         <span class="btn-icon">🔍</span>
@@ -120,16 +131,20 @@
                         <span class="btn-icon">📥</span>
                         Generar Excel
                     </button>
+                    <button id="btnClearFilters" class="btn btn-secondary">
+                        <span class="btn-icon">🧹</span>
+                        Limpiar
+                    </button>
                 </div>
             </div>
 
             <!-- Panel de métricas -->
             <div class="metrics-panel">
                 <!-- Búsqueda Rápida de Ticket Individual -->
-                <div class="metrics-section" style="border: 2px solid #667eea; background: #f0f4ff; padding: 20px;">
-                    <h2 style="display: flex; gap: 10px; align-items: center;">🔍 Buscar Ticket Individual</h2>
-                    <div style="display: flex; gap: 10px; margin-top: 15px;">
-                        <input type="text" id="quickTicketNumber" class="input-field" placeholder="Ej: 201132" style="flex: 1;">
+                <div class="metrics-section search-panel">
+                    <h2>🔍 Buscar Ticket Individual</h2>
+                    <div class="button-group" style="margin-top: 15px;">
+                        <input type="text" id="quickTicketNumber" class="input-field" placeholder="Ej: 201132" style="flex: 1; max-width: 300px;">
                         <button id="btnQuickSearch" class="btn btn-primary">
                             <span class="btn-icon">🔍</span>
                             Buscar
@@ -181,27 +196,6 @@
                 </div>
 
                 <div id="metricsContent" style="display: none;">
-                    <!-- Duraciones por Estado para cada Ticket - PRINCIPAL -->
-                    <div class="metrics-section">
-                        <h2>📊 Duración por Estado - Detalle de Tickets</h2>
-                        <p style="color: #666; margin: -10px 0 15px 0;">Todos los tickets con su tiempo en cada estado</p>
-                        <div id="ticketDurationsContainer" class="table-container" style="display: none;">
-                            <table class="states-duration-table" style="width: 100%;">
-                                <thead>
-                                    <tr>
-                                        <th>Ticket</th>
-                                        <th>Título</th>
-                                        <th>Proyecto</th>
-                                        <th>Estado</th>
-                                        <th style="text-align: right;">Minutos</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="ticketDurationsBody">
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
                     <!-- Resumen de Métricas -->
                     <div class="metrics-section">
                         <h2>📈 Resumen General</h2>
@@ -229,11 +223,11 @@
                             <div>
                                 <h3 style="font-size: 14px; color: #667eea; margin-bottom: 10px;">Primera Respuesta</h3>
                                 <div class="metrics-grid">
-                                    <div class="metric-card success">
+                                    <div class="metric-card success clickable-card" id="cardFrMet">
                                         <div class="metric-label">Cumplidos</div>
                                         <div class="metric-value" id="frMet">0</div>
                                     </div>
-                                    <div class="metric-card danger">
+                                    <div class="metric-card danger clickable-card" id="cardFrBreached">
                                         <div class="metric-label">Incumplidos</div>
                                         <div class="metric-value" id="frBreached">0</div>
                                     </div>
@@ -252,11 +246,11 @@
                             <div>
                                 <h3 style="font-size: 14px; color: #667eea; margin-bottom: 10px;">Resolución</h3>
                                 <div class="metrics-grid">
-                                    <div class="metric-card success">
+                                    <div class="metric-card success clickable-card" id="cardResMet">
                                         <div class="metric-label">Cumplidos</div>
                                         <div class="metric-value" id="resMet">0</div>
                                     </div>
-                                    <div class="metric-card danger">
+                                    <div class="metric-card danger clickable-card" id="cardResBreached">
                                         <div class="metric-label">Incumplidos</div>
                                         <div class="metric-value" id="resBreached">0</div>
                                     </div>
@@ -272,6 +266,49 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Duraciones por Estado para cada Ticket - AHORA AL FINAL CON PAGINACIÓN -->
+                    <div class="metrics-section">
+                        <h2>📊 Duración por Estado - Detalle de Tickets</h2>
+                        <p style="color: #666; margin: -10px 0 15px 0;">Todos los tickets con su tiempo en cada estado</p>
+                        
+                        <!-- Controles de Paginación -->
+                        <div class="pagination-controls" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 15px; background: #f8fafc; border-radius: 6px; border: 1px solid var(--border-color);">
+                            <div class="items-per-page" style="display: flex; align-items: center; gap: 10px;">
+                                <label style="font-weight: 600; color: var(--text-muted);">Mostrar:</label>
+                                <select id="pageSizeSelect" class="input-field" style="width: auto; padding: 5px 10px;">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                                <span style="color: var(--text-muted); font-size: 0.9em;">tickets por página</span>
+                            </div>
+                            
+                            <div class="page-navigation" style="display: flex; align-items: center; gap: 10px;">
+                                <button id="btnPrevPage" class="btn btn-primary" style="padding: 8px 15px;">← Anterior</button>
+                                <span id="pageInfo" style="font-weight: 600; color: var(--primary-color); min-width: 100px; text-align: center;">Página 1 de 1</span>
+                                <button id="btnNextPage" class="btn btn-primary" style="padding: 8px 15px;">Siguiente →</button>
+                            </div>
+                        </div>
+
+                        <div id="ticketDurationsContainer" class="table-container" style="display: none;">
+                            <table class="states-duration-table" style="width: 100%;">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable-header" data-sort="number">Ticket</th>
+                                        <th class="sortable-header" data-sort="title">Título</th>
+                                        <th class="sortable-header" data-sort="organization">Proyecto</th>
+                                        <th class="sortable-header" data-sort="owner">Responsable</th>
+                                        <th class="sortable-header" data-sort="state_name">Estado Actual</th>
+                                        <th class="sortable-header" data-sort="hightech_time_minutes" style="text-align: right;">Tiempo HighTech (min)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ticketDurationsBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="errorMessage" class="error-message" style="display: none;">
@@ -283,6 +320,39 @@
                     </ul>
                 </div>
             </div> <!-- Cierre de reports-tab -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Detalles SLA -->
+    <div id="slaDetailsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle" style="margin: 0; font-size: 1.2rem; color: var(--primary-color);">Detalles de Tickets</h2>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <button id="btnExportModal" class="btn btn-success" style="padding: 6px 12px; font-size: 0.85em;">
+                        <span class="btn-icon">📥</span> Exportar Excel
+                    </button>
+                    <span class="close-modal">&times;</span>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="table-container">
+                    <table class="states-duration-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Título</th>
+                                <th>Responsable</th>
+                                <th>Tiempo Real</th>
+                                <th>Objetivo SLA</th>
+                                <th>Diferencia</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modalTableBody">
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>

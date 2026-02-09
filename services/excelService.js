@@ -25,6 +25,16 @@ class ExcelService {
     return workbook;
   }
 
+  async generateTicketsListReport(tickets) {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Zammad SLA Reporter';
+    workbook.created = new Date();
+    
+    this.createTicketsSheet(workbook, tickets);
+    
+    return workbook;
+  }
+
   createSummarySheet(workbook, metrics, filters) {
     const sheet = workbook.addWorksheet('Resumen Ejecutivo');
     
@@ -173,7 +183,9 @@ class ExcelService {
       'Fase',
       'Responsable',
       'Tiempo Hightech',
-      'Tiempo Cliente'
+      'Tiempo Cliente',
+      'SLA 1ra Resp.',
+      'SLA Resolución'
     ];
     
     sheet.addRow(headers);
@@ -205,14 +217,19 @@ class ExcelService {
       { width: 10 },  // Fase
       { width: 18 },  // Responsable
       { width: 14 },  // Tiempo Hightech
-      { width: 14 }   // Tiempo Cliente
+      { width: 14 },  // Tiempo Cliente
+      { width: 15 },  // SLA 1ra Resp.
+      { width: 15 }   // SLA Resolución
     ];
     
     // Datos
     tickets.forEach(ticket => {
+      const firstResponseSLA = ticket.first_response_sla_met === true ? 'CUMPLIDO' : (ticket.first_response_sla_met === false ? 'INCUMPLIDO' : '-');
+      const resolutionSLA = ticket.resolution_sla_met === true ? 'CUMPLIDO' : (ticket.resolution_sla_met === false ? 'INCUMPLIDO' : '-');
+
       const row = sheet.addRow([
         ticket.ticket_number,
-        ticket.created_at ? moment(ticket.created_at).format('DD/MM/YYYY HH:mm') : '',
+        ticket.created_at ? moment(ticket.created_at).utcOffset(-5).format('DD/MM/YYYY HH:mm') : '',
         ticket.type || '',
         ticket.state_name,
         ticket.empresa || '',
@@ -221,21 +238,32 @@ class ExcelService {
         ticket.priority_name,
         ticket.customer_name || '',
         ticket.owner_name || '',
-        ticket.updated_at ? moment(ticket.updated_at).format('DD/MM/YYYY HH:mm') : '',
+        ticket.updated_at ? moment(ticket.updated_at).utcOffset(-5).format('DD/MM/YYYY HH:mm') : '',
         ticket.bld_ticket_fase || '',
         ticket.bld_responsable || '',
         ticket.hightech_time_formatted || '0m',
-        ticket.client_time_formatted || '0m'
+        ticket.client_time_formatted || '0m',
+        firstResponseSLA,
+        resolutionSLA
       ]);
       
       // Alineación y formato
       row.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+
+      // Colorear celdas de SLA para facilitar lectura
+      const frCell = row.getCell(16);
+      if (firstResponseSLA === 'CUMPLIDO') frCell.font = { color: { argb: 'FF008000' }, bold: true }; // Verde
+      if (firstResponseSLA === 'INCUMPLIDO') frCell.font = { color: { argb: 'FFFF0000' }, bold: true }; // Rojo
+
+      const resCell = row.getCell(17);
+      if (resolutionSLA === 'CUMPLIDO') resCell.font = { color: { argb: 'FF008000' }, bold: true }; // Verde
+      if (resolutionSLA === 'INCUMPLIDO') resCell.font = { color: { argb: 'FFFF0000' }, bold: true }; // Rojo
     });
     
     // Filtros automáticos
     sheet.autoFilter = {
       from: 'A1',
-      to: 'O1'
+      to: 'Q1'
     };
   }
 

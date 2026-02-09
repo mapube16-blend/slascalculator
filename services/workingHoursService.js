@@ -49,7 +49,7 @@ class WorkingHoursService {
     }
 
     // Convertir a array de strings
-    this.holidayDates = fixedHolidays.map(d => d.format('YYYY-MM-DD'));
+    this.holidayDates = new Set(fixedHolidays.map(d => d.format('YYYY-MM-DD')));
   }
 
   /**
@@ -115,9 +115,6 @@ calculateWorkingMinutes(startDate, endDate, calendarType = 'laboral') {
     const start = moment(startDate).subtract(5, 'hours').utcOffset(-5);
     const end = moment(endDate).subtract(5, 'hours').utcOffset(-5);
 
-    // LOG PARA TU TRANQUILIDAD (Verás que ahora sí cuadra con 17:43)
-    console.log(`🔎 Ajuste: ${moment(startDate).format('HH:mm')} (DB) -> ${start.format('HH:mm')} (Real)`);
-
     if (end.isBefore(start)) {
       return 0;
     }
@@ -135,8 +132,10 @@ calculateWorkingMinutes(startDate, endDate, calendarType = 'laboral') {
     totalMinutes += firstDayMinutes;
 
     // Días completos laborales (excluyendo primer y último día)
-    let currentDay = moment(start).add(1, 'day');
-    while (currentDay.format('YYYY-MM-DD') < end.format('YYYY-MM-DD')) {
+    let currentDay = moment(start).add(1, 'day').startOf('day');
+    const endDay = moment(end).startOf('day');
+
+    while (currentDay.isBefore(endDay)) {
       if (this.isWorkingDay(currentDay, config)) {
         totalMinutes += config.hoursPerDay * 60;
       }
@@ -254,7 +253,7 @@ calculateWorkingMinutes(startDate, endDate, calendarType = 'laboral') {
     }
 
     // Verificar si es festivo (solo si excluimos festivos)
-    if (config.excludeHolidays && config.holidayDates.includes(m.format('YYYY-MM-DD'))) {
+    if (config.excludeHolidays && config.holidayDates.has(m.format('YYYY-MM-DD'))) {
       return false;
     }
 
