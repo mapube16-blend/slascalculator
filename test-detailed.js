@@ -4,7 +4,7 @@ const moment = require('moment');
 
 async function testGetTicketsDetailed() {
   try {
-    console.log('\n🧪 TEST DETALLADO DE getTicketsWithSLA\n');
+    console.log('\n TEST DETALLADO DE getTicketsWithSLA\n');
 
     // Obtener el ticket #20502 directamente de la BD
     const ticketRow = await pool.query(`

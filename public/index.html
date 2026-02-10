@@ -23,8 +23,8 @@
         <div class="main-content">
             <!-- Tabs para navegar entre secciones -->
             <div class="tabs-header">
-                <button class="tab-button active" data-tab="reports">📊 Reportes</button>
-                <button class="tab-button" data-tab="charts">📈 Gráficas</button>
+                <button class="tab-button active" data-tab="reports">Reportes</button>
+                <button class="tab-button" data-tab="charts">Gráficas</button>
             </div>
 
             <!-- TAB 1: Reportes -->
@@ -33,14 +33,14 @@
             <!-- Panel de Selección de Calendario (OBLIGATORIO) -->
             <div class="calendar-selector-panel" id="calendarSelectorPanel">
                 <div class="calendar-selector-content">
-                    <h2>⏰ Selecciona el Tipo de Calendario</h2>
+                    <h2>Selecciona el Tipo de Calendario</h2>
                     <p class="calendar-selector-description">El calendario determina cómo se calculan los tiempos del ticket según el tipo de contrato.</p>
                     
                     <div class="calendar-options">
                         <label class="calendar-option">
                             <input type="radio" name="calendarType" value="laboral" checked>
                             <div class="calendar-option-content">
-                                <h3>⏢ Horario Laboral</h3>
+                                <h3>Horario Laboral</h3>
                                 <p>Lunes a Viernes, 8:00 AM - 5:00 PM</p>
                                 <span class="calendar-option-example">Incluye festivos colombianos</span>
                             </div>
@@ -49,7 +49,7 @@
                         <label class="calendar-option">
                             <input type="radio" name="calendarType" value="24-7">
                             <div class="calendar-option-content">
-                                <h3>🌙 24/7 (Permanente)</h3>
+                                <h3>24/7 (Permanente)</h3>
                                 <p>Todos los días, 24 horas</p>
                                 <span class="calendar-option-example">Sin descansos, fines de semana ni festivos</span>
                             </div>
@@ -58,7 +58,7 @@
                         <label class="calendar-option">
                             <input type="radio" name="calendarType" value="extended">
                             <div class="calendar-option-content">
-                                <h3>🌅 Horario Extendido</h3>
+                                <h3>Horario Extendido</h3>
                                 <p>Lunes a Domingo, 8:00 AM - 10:00 PM</p>
                                 <span class="calendar-option-example">Incluye sábados y domingos (sin festivos)</span>
                             </div>
@@ -67,7 +67,6 @@
                     
                     <div class="button-group" style="margin-top: 25px;">
                         <button id="btnConfirmCalendar" class="btn btn-primary" style="width: 100%;">
-                            <span class="btn-icon">✓</span>
                             Confirmar Calendario
                         </button>
                     </div>
@@ -79,7 +78,7 @@
                 <h2>Filtros del Reporte</h2>
                 
                 <div class="calendar-selected-info">
-                    <p>📅 Calendario seleccionado: <strong id="calendarSelectedDisplay">Horario Laboral</strong> 
+                    <p>Calendario seleccionado: <strong id="calendarSelectedDisplay">Horario Laboral</strong> 
                     <button id="btnChangeCalendar" class="btn-link">Cambiar</button></p>
                 </div>
                 
@@ -129,15 +128,12 @@
 
                 <div class="button-group">
                     <button id="btnLoadMetrics" class="btn btn-primary">
-                        <span class="btn-icon">🔍</span>
                         Cargar Métricas
                     </button>
                     <button id="btnGenerateReport" class="btn btn-success">
-                        <span class="btn-icon">📥</span>
                         Generar Excel
                     </button>
                     <button id="btnClearFilters" class="btn btn-secondary">
-                        <span class="btn-icon">🧹</span>
                         Limpiar
                     </button>
                 </div>
@@ -147,11 +143,10 @@
             <div class="metrics-panel">
                 <!-- Búsqueda Rápida de Ticket Individual -->
                 <div class="metrics-section search-panel">
-                    <h2>🔍 Buscar Ticket Individual</h2>
+                    <h2>Buscar Ticket Individual</h2>
                     <div class="button-group" style="margin-top: 15px;">
                         <input type="text" id="quickTicketNumber" class="input-field" placeholder="Ej: 201132" style="flex: 1; max-width: 300px;">
                         <button id="btnQuickSearch" class="btn btn-primary">
-                            <span class="btn-icon">🔍</span>
                             Buscar
                         </button>
                     </div>
@@ -203,7 +198,7 @@
                 <div id="metricsContent" style="display: none;">
                     <!-- Resumen de Métricas -->
                     <div class="metrics-section">
-                        <h2>📈 Resumen General</h2>
+                        <h2>Resumen General</h2>
                         <div class="metrics-grid">
                             <div class="metric-card">
                                 <div class="metric-label">Total Tickets</div>
@@ -222,7 +217,7 @@
 
                     <!-- SLA Cumplimiento -->
                     <div class="metrics-section">
-                        <h2>⏱️ SLA - Cumplimiento</h2>
+                        <h2>SLA - Cumplimiento</h2>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                             <!-- Primera Respuesta -->
                             <div>
@@ -274,7 +269,7 @@
 
                     <!-- Duraciones por Estado para cada Ticket - AHORA AL FINAL CON PAGINACIÓN -->
                     <div class="metrics-section">
-                        <h2>📊 Duración por Estado - Detalle de Tickets</h2>
+                        <h2>Duración por Estado - Detalle de Tickets</h2>
                         <p style="color: #666; margin: -10px 0 15px 0;">Todos los tickets con su tiempo en cada estado</p>
                         
                         <!-- Controles de Paginación -->
@@ -317,7 +312,7 @@
                 </div>
 
                 <div id="errorMessage" class="error-message" style="display: none;">
-                    <p>⚠️ Error al cargar los datos. Verifica que:</p>
+                    <p>Error al cargar los datos. Verifica que:</p>
                     <ul>
                         <li>La VPN esté activa</li>
                         <li>Las credenciales sean correctas</li>
@@ -330,7 +325,7 @@
             <!-- TAB 2: Gráficas -->
             <div id="charts-tab" class="tab-content">
                 <div class="metrics-section">
-                    <h2>📊 Tablero de Control Operativo</h2>
+                    <h2>Tablero de Control Operativo</h2>
                     
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                         <p style="color: #64748b; margin: 0;">Visualización gráfica del estado actual según los filtros aplicados.</p>
@@ -370,7 +365,7 @@
                 <h2 id="modalTitle" style="margin: 0; font-size: 1.2rem; color: var(--primary-color);">Detalles de Tickets</h2>
                 <div style="display: flex; align-items: center; gap: 15px;">
                     <button id="btnExportModal" class="btn btn-success" style="padding: 6px 12px; font-size: 0.85em;">
-                        <span class="btn-icon">📥</span> Exportar Excel
+                        Exportar Excel
                     </button>
                     <span class="close-modal">&times;</span>
                 </div>

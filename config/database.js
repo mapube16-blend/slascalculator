@@ -23,11 +23,11 @@ pool.on('error', (err) => {
 async function testConnection() {
   try {
     const client = await pool.connect();
-    console.log('✓ Conexión exitosa a la base de datos de Zammad');
+    console.log('Conexión exitosa a la base de datos de Zammad');
     client.release();
     return true;
   } catch (error) {
-    console.error('✗ Error al conectar con la base de datos:', error.message);
+    console.error('Error al conectar con la base de datos:', error.message);
     console.error('Asegúrate de que la VPN esté activa y las credenciales sean correctas');
     return false;
   }

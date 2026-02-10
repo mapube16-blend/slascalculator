@@ -2,7 +2,7 @@
 const http = require('http');
 
 function testEndpoint() {
-    console.log('🧪 Probando estructura de datos del endpoint\n');
+    console.log(' Probando estructura de datos del endpoint\n');
     
     const options = {
         hostname: 'localhost',

@@ -87,22 +87,22 @@ app.use((err, req, res, next) => {
 // Iniciar servidor
 async function startServer() {
   try {
-    console.log('🔄 Verificando conexión a la base de datos...');
+    console.log('Verificando conexión a la base de datos...');
     isDbConnected = await testConnection();
     
     if (!isDbConnected) {
-      console.log('\n⚠️  ADVERTENCIA: No se pudo conectar a la base de datos');
+      console.log('\nADVERTENCIA: No se pudo conectar a la base de datos');
       console.log('   Asegúrate de que:');
       console.log('   1. La VPN esté activa');
       console.log('   2. Las credenciales en .env sean correctas');
       console.log('   3. El servidor de PostgreSQL esté accesible\n');
-      console.log('ℹ️  El servidor iniciará en MODO RESTRINGIDO (Pantalla de VPN requerida)\n');
+      console.log('   El servidor iniciará en MODO RESTRINGIDO (Pantalla de VPN requerida)\n');
     }
     
     app.listen(PORT, () => {
-      console.log(`✓ Servidor iniciado en http://localhost:${PORT}`);
-      console.log(`✓ Accede a la aplicación web en tu navegador`);
-      console.log(`\n📊 Listo para generar reportes de SLA de Zammad\n`);
+      console.log(`Servidor iniciado en http://localhost:${PORT}`);
+      console.log(`Accede a la aplicación web en tu navegador`);
+      console.log(`\nListo para generar reportes de SLA de Zammad\n`);
     });
     
   } catch (error) {

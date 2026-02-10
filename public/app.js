@@ -25,7 +25,7 @@ function mapStateName(raw) {
 
 // Inicializar la aplicación
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🎯 DOMContentLoaded disparado - inicializando app');
+    console.log('DOMContentLoaded disparado - inicializando app');
     
     // Inicializar objeto elements ahora que el DOM está listo
     elements = {
@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         chartsGrid: document.getElementById('chartsGrid')
     };
     
-    console.log('✓ Elementos del DOM cargados');
+    console.log('Elementos del DOM cargados');
     
     // Configurar eventos del selector de calendario
     setupCalendarSelector();
@@ -113,7 +113,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     
-    console.log('✓ Event listeners configurados');
+    console.log('Event listeners configurados');
     
     // ==================== INICIALIZAR TABS ====================
     initializeTabs();
@@ -154,7 +154,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Configurar eventos del selector de calendario
 function setupCalendarSelector() {
     if (!elements.btnConfirmCalendar) {
-        console.warn('⚠️  btnConfirmCalendar no encontrado');
+        console.warn('btnConfirmCalendar no encontrado');
         return;
     }
     
@@ -181,7 +181,7 @@ function setupCalendarSelector() {
 // Confirmar selección de calendario
 function confirmCalendarSelection(calendarType) {
     selectedCalendarType = calendarType;
-    console.log(`✓ Calendario seleccionado: ${calendarType}`);
+    console.log(`Calendario seleccionado: ${calendarType}`);
     
     // Actualizar el nombre mostrado
     if (elements.calendarSelectedDisplay) {
@@ -303,7 +303,7 @@ function setupProjectSearch(projects) {
     // Crear input de búsqueda
     const searchInput = document.createElement('input');
     searchInput.type = 'text';
-    searchInput.placeholder = '🔍 Buscar proyecto...';
+    searchInput.placeholder = 'Buscar proyecto...';
     searchInput.className = select.className; 
     searchInput.style.width = '100%';
     searchInput.autocomplete = 'off';
@@ -537,7 +537,7 @@ async function loadMetrics() {
     // Validar que se ha seleccionado un calendario
     if (!selectedCalendarType) {
         if (elements.errorMessage) {
-            elements.errorMessage.textContent = '⚠️ Debes seleccionar un calendario antes de cargar métricas';
+            elements.errorMessage.textContent = 'Debes seleccionar un calendario antes de cargar métricas';
             elements.errorMessage.style.display = 'block';
         }
         showCalendarSelector();
@@ -582,7 +582,7 @@ async function loadMetrics() {
         console.error('Error al cargar métricas:', error);
         if (elements.errorMessage) {
             elements.errorMessage.style.display = 'block';
-            elements.errorMessage.textContent = '❌ Error al cargar métricas. Intenta de nuevo.';
+            elements.errorMessage.textContent = 'Error al cargar métricas. Intenta de nuevo.';
         }
     } finally {
         if (elements.loadingIndicator) elements.loadingIndicator.style.display = 'none';
@@ -616,7 +616,7 @@ function displayMetrics(metrics) {
 async function generateReport() {
     // Validar que se ha seleccionado un calendario
     if (!selectedCalendarType) {
-        alert('⚠️ Debes seleccionar un calendario antes de generar el reporte');
+        alert('Debes seleccionar un calendario antes de generar el reporte');
         showCalendarSelector();
         return;
     }
@@ -626,7 +626,7 @@ async function generateReport() {
     // Deshabilitar botón durante la generación
     if (elements.btnGenerateReport) {
         elements.btnGenerateReport.disabled = true;
-        elements.btnGenerateReport.textContent = '⏳ Generando...';
+        elements.btnGenerateReport.textContent = 'Generando...';
     }
     
     try {
@@ -650,18 +650,18 @@ async function generateReport() {
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
             
-            alert('✓ Reporte generado exitosamente');
+            alert('Reporte generado exitosamente');
         } else {
             throw new Error('Error al generar reporte');
         }
         
     } catch (error) {
         console.error('Error al generar reporte:', error);
-        alert('✗ Error al generar el reporte. Por favor intenta nuevamente.');
+        alert('Error al generar el reporte. Por favor intenta nuevamente.');
     } finally {
         if (elements.btnGenerateReport) {
             elements.btnGenerateReport.disabled = false;
-            elements.btnGenerateReport.innerHTML = '<span class="btn-icon">📥</span> Generar Excel';
+            elements.btnGenerateReport.textContent = 'Generar Excel';
         }
     }
 }
@@ -736,11 +736,11 @@ function displayTicketDurations(tickets) {
         // 1. Fila Principal (Resumen)
         const row = document.createElement('tr');
         row.style.cursor = 'pointer';
-        row.title = '👆 Haz clic para ver el historial detallado de este ticket'; // Tooltip solicitado
+        row.title = 'Haz clic para ver el historial detallado de este ticket'; // Tooltip solicitado
         row.className = 'ticket-summary-row';
         
         // Icono de expansión
-        const expandIcon = '▼';
+        const expandIcon = '▼'; // Carácter geométrico estándar, aceptable
         
         // Determinar clase del badge
         const stateClass = getStatusBadgeClass(ticket.state_name);
@@ -748,7 +748,7 @@ function displayTicketDurations(tickets) {
         row.innerHTML = `
             <td>
                 <strong>${ticket.number}</strong> 
-                <button class="copy-btn" onclick="copyToClipboard(event, '${ticket.number}')" title="Copiar número">📋</button>
+                <button class="copy-btn" onclick="copyToClipboard(event, '${ticket.number}')" title="Copiar número">Copiar</button>
                 <span style="font-size: 0.8em; color: var(--accent-color); margin-left: 5px;">${expandIcon}</span>
             </td>
             <td title="${ticket.title}">${ticket.title.substring(0, 50)}${ticket.title.length > 50 ? '...' : ''}</td>
@@ -770,7 +770,7 @@ function displayTicketDurations(tickets) {
         
         // Construir tabla interna de historial
         let historyHtml = `
-            <div style="margin-bottom: 10px; font-weight: 600; color: var(--primary-color);">📋 Historial Completo del Ticket ${ticket.number}</div>
+            <div style="margin-bottom: 10px; font-weight: 600; color: var(--primary-color);">Historial Completo del Ticket ${ticket.number}</div>
             <table class="states-duration-table" style="width: 100%; font-size: 0.9em; background: white; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
                 <thead>
                     <tr style="background: #e2e8f0; color: var(--text-main);">
@@ -844,7 +844,7 @@ window.copyToClipboard = function(event, text) {
         // Feedback visual opcional (podría ser un toast, pero por ahora simple)
         const btn = event.target;
         const original = btn.textContent;
-        btn.textContent = '✓';
+        btn.textContent = 'Copiado';
         setTimeout(() => btn.textContent = original, 1000);
     });
 };
@@ -861,11 +861,11 @@ function formatMinutes(minutes) {
 // ==================== FUNCIONALIDAD DE TABS ====================
 
 function initializeTabs() {
-    console.log('🔄 Inicializando sistema de TABS');
+    console.log('Inicializando sistema de TABS');
     
     // Como solo hay una pestaña (Reportes), solo inicializamos sus eventos
     const tabButtons = document.querySelectorAll('.tab-button');
-    console.log(`✓ Encontrados ${tabButtons.length} botón tab`);
+    console.log(`Encontrados ${tabButtons.length} botón tab`);
     
     // Si hay más de una pestaña, agregar lógica de cambio
     if (tabButtons.length > 1) {
@@ -875,7 +875,7 @@ function initializeTabs() {
             button.addEventListener('click', function(e) {
                 e.preventDefault();
                 const tabName = this.getAttribute('data-tab');
-                console.log(`👆 Click en tab: "${tabName}"`);
+                console.log(`Click en tab: "${tabName}"`);
                 
                 tabButtons.forEach(b => b.classList.remove('active'));
                 allTabContents.forEach(c => c.classList.remove('active'));
@@ -897,7 +897,7 @@ function initializeTabs() {
         });
     }
     
-    console.log('✓ Sistema de TABS inicializado\n');
+    console.log('Sistema de TABS inicializado\n');
 }
 
 // ==================== GRÁFICAS (CHART.JS) ====================
@@ -1031,14 +1031,14 @@ function renderCharts(metrics) {
 // ==================== BÚSQUEDA RÁPIDA DE TICKETS ====================
 
 function initializeTicketSearch() {
-    console.log('🔄 Inicializando búsqueda rápida de TICKETS');
+    console.log('Inicializando búsqueda rápida de TICKETS');
     
     // Obtener elementos
     const quickTicketInput = document.getElementById('quickTicketNumber');
     const btnQuickSearch = document.getElementById('btnQuickSearch');
     
     if (!quickTicketInput || !btnQuickSearch) {
-        console.warn('⚠️ Elementos de búsqueda rápida no encontrados');
+        console.warn('Elementos de búsqueda rápida no encontrados');
         return;
     }
     
@@ -1053,17 +1053,17 @@ function initializeTicketSearch() {
         }
     });
     
-    console.log('✓ Búsqueda rápida inicializada\n');
+    console.log('Búsqueda rápida inicializada\n');
 }
 
 async function searchQuickTicket() {
     const ticketNumber = document.getElementById('quickTicketNumber').value.trim();
     
-    console.log(`🔎 Buscando ticket: "${ticketNumber}"`);
+    console.log(`Buscando ticket: "${ticketNumber}"`);
     
     // Validar que se ha seleccionado un calendario
     if (!selectedCalendarType) {
-        showQuickTicketError('⚠️ Debes seleccionar un calendario primero');
+        showQuickTicketError('Debes seleccionar un calendario primero');
         return;
     }
     
@@ -1078,7 +1078,7 @@ async function searchQuickTicket() {
         document.getElementById('quickTicketResult').style.display = 'none';
         document.getElementById('quickTicketError').style.display = 'none';
         
-        console.log(`  → API: /api/ticket-history/${ticketNumber}?calendarType=${selectedCalendarType}`);
+        console.log(`  API: /api/ticket-history/${ticketNumber}?calendarType=${selectedCalendarType}`);
         
         // Buscar ticket
         const response = await fetch(`/api/ticket-history/${encodeURIComponent(ticketNumber)}?calendarType=${selectedCalendarType}`);
@@ -1089,7 +1089,7 @@ async function searchQuickTicket() {
             return;
         }
         
-        console.log(`✓ Ticket encontrado: ${result.data.ticket.number}`);
+        console.log(`Ticket encontrado: ${result.data.ticket.number}`);
         
         // Mostrar resultado
         displayQuickTicket(result.data);
@@ -1097,7 +1097,7 @@ async function searchQuickTicket() {
         document.getElementById('quickTicketError').style.display = 'none';
         
     } catch (error) {
-        console.error('❌ Error:', error);
+        console.error('Error:', error);
         showQuickTicketError('Error al buscar el ticket. Intenta de nuevo.');
     } finally {
         document.getElementById('quickTicketLoading').style.display = 'none';
@@ -1259,7 +1259,7 @@ function openSLAModal(type, status) {
 
     // Configurar filtro y títulos según lo que se clickeó
     if (type === 'first_response') {
-        title = status === 'met' ? '✅ Tickets con Primera Respuesta Cumplida' : '❌ Tickets con Primera Respuesta Incumplida';
+        title = status === 'met' ? 'Tickets con Primera Respuesta Cumplida' : 'Tickets con Primera Respuesta Incumplida';
         timeField = 'first_response_time_minutes';
         slaField = 'firstResponse';
         
@@ -1267,7 +1267,7 @@ function openSLAModal(type, status) {
             status === 'met' ? t.first_response_sla_met === true : t.first_response_sla_met === false
         );
     } else {
-        title = status === 'met' ? '✅ Tickets con Resolución Cumplida' : '❌ Tickets con Resolución Incumplida';
+        title = status === 'met' ? 'Tickets con Resolución Cumplida' : 'Tickets con Resolución Incumplida';
         timeField = 'hightech_time_minutes';
         slaField = 'resolution';
         
@@ -1328,7 +1328,7 @@ async function exportModalData() {
     const btn = elements.btnExportModal;
     const originalText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '⏳ Exportando...';
+    btn.innerHTML = 'Exportando...';
     
     try {
         const response = await fetch('/api/generate-filtered-report', {

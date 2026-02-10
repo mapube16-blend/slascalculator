@@ -57,7 +57,6 @@
             display: inline-block;
         }
         .btn:hover { background-color: #0284c7; transform: translateY(-1px); }
-        .icon { font-size: 3.5rem; margin-bottom: 20px; display: block; }
         
         /* Modal Styles */
         .modal-overlay {
@@ -86,11 +85,6 @@
             border-top: 6px solid #10b981;
         }
         
-        .success-icon {
-            font-size: 3rem;
-            margin-bottom: 15px;
-            display: block;
-        }
         
         .modal-title {
             color: #0f172a;
@@ -110,20 +104,18 @@
 <body>
     <div class="card">
         <img src="img/logo.png" alt="Logo Empresa" class="logo">
-        <div class="icon">🔒</div>
         <h1>Conexión VPN Requerida</h1>
         <p>
             No se pudo establecer conexión con la base de datos de Zammad.
             <br><br>
             Por favor, asegúrate de que tu <strong>VPN corporativa</strong> esté activa y conectada para acceder a este servicio.
         </p>
-        <a href="#" class="btn" onclick="checkConnection(event)">🔄 Reintentar Conexión</a>
+        <a href="#" class="btn" onclick="checkConnection(event)">Reintentar Conexión</a>
     </div>
 
     <!-- Modal de Éxito -->
     <div id="successModal" class="modal-overlay">
         <div class="modal-success">
-            <div class="success-icon">✅</div>
             <h2 class="modal-title">¡Conexión Exitosa!</h2>
             <p class="modal-text">Accediendo al sistema...</p>
         </div>
@@ -136,7 +128,7 @@
             const originalText = btn.textContent;
             
             // Estado de carga
-            btn.textContent = '⏳ Verificando...';
+            btn.textContent = 'Verificando...';
             btn.style.opacity = '0.7';
             btn.style.pointerEvents = 'none';
             
@@ -157,7 +149,7 @@
             } catch (error) {
                 // Fallo: Mostrar error en botón
                 setTimeout(() => {
-                    btn.textContent = '❌ Sin conexión';
+                    btn.textContent = 'Sin conexión';
                     btn.style.backgroundColor = '#ef4444';
                     
                     setTimeout(() => {

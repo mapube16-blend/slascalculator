@@ -3,49 +3,49 @@ const moment = require('moment');
 const workingHours = require('./workingHoursService');
 
 // CONFIGURACIÓN DE SLAs (Reglas de Negocio)
-// Tiempos en minutos laborales
+// Tiempos en HORAS laborales (se convierten a minutos en getSLATargets)
 const SLA_CONFIG = {
   // Tiempos para Incidentes
   'incidente': {
     // 1. Crítico (Inferior a 1 hora / 28 horas)
-    '1': { firstResponse: 60, resolution: 1680 },
-    'critico': { firstResponse: 60, resolution: 1680 },
+    '1': { firstResponse: 1, resolution: 28 },
+    'critico': { firstResponse: 1, resolution: 28 },
     
     // 2. Urgente o Alto (Inferior a 2 horas / 44 horas)
-    '2': { firstResponse: 120, resolution: 2640 },
-    'alto': { firstResponse: 120, resolution: 2640 },
-    'urgente': { firstResponse: 120, resolution: 2640 },
-    'alta': { firstResponse: 120, resolution: 2640 }, // Compatibilidad con nombres anteriores
+    '2': { firstResponse: 2, resolution: 44 },
+    'alto': { firstResponse: 2, resolution: 44 },
+    'urgente': { firstResponse: 2, resolution: 44 },
+    'alta': { firstResponse: 2, resolution: 44 }, // Compatibilidad con nombres anteriores
 
     // 3. Ordinarias o Medio (Inferior a 4 horas / 56 horas)
-    '3': { firstResponse: 240, resolution: 3360 },
-    'medio': { firstResponse: 240, resolution: 3360 },
-    'ordinaria': { firstResponse: 240, resolution: 3360 },
-    'media': { firstResponse: 240, resolution: 3360 }, // Compatibilidad
+    '3': { firstResponse: 4, resolution: 56 },
+    'medio': { firstResponse: 4, resolution: 56 },
+    'ordinaria': { firstResponse: 4, resolution: 56 },
+    'media': { firstResponse: 4, resolution: 56 }, // Compatibilidad
 
     // 4. Leves o Bajo (Inferior a 8 horas / 80 horas)
-    '4': { firstResponse: 480, resolution: 4800 },
-    'bajo': { firstResponse: 480, resolution: 4800 },
-    'leve': { firstResponse: 480, resolution: 4800 },
-    'baja': { firstResponse: 480, resolution: 4800 }, // Compatibilidad
+    '4': { firstResponse: 8, resolution: 80 },
+    'bajo': { firstResponse: 8, resolution: 80 },
+    'leve': { firstResponse: 8, resolution: 80 },
+    'baja': { firstResponse: 8, resolution: 80 }, // Compatibilidad
 
     // 5. Planeado (Inferior a 8 horas / 176 horas)
-    '5': { firstResponse: 480, resolution: 10560 },
-    'planeado': { firstResponse: 480, resolution: 10560 }
+    '5': { firstResponse: 8, resolution: 176 },
+    'planeado': { firstResponse: 8, resolution: 176 }
   },
   // Tiempos para Requerimientos
   'requerimiento': {
     // Se aplican las mismas reglas que para incidentes por ahora
-    'critico': { firstResponse: 60, resolution: 1680 },
-    'alto': { firstResponse: 120, resolution: 2640 },
-    'medio': { firstResponse: 240, resolution: 3360 },
-    'bajo': { firstResponse: 480, resolution: 4800 },
-    'planeado': { firstResponse: 480, resolution: 10560 }
+    'critico': { firstResponse: 1, resolution: 28 },
+    'alto': { firstResponse: 2, resolution: 44 },
+    'medio': { firstResponse: 4, resolution: 56 },
+    'bajo': { firstResponse: 8, resolution: 80 },
+    'planeado': { firstResponse: 8, resolution: 176 }
   },
   // Configuración por defecto (si no coincide tipo/prioridad)
   'default': {
-    firstResponse: 240, // 4 horas
-    resolution: 3360    // 56 horas (Medio)
+    firstResponse: 4, // 4 horas
+    resolution: 56    // 56 horas (Medio)
   }
 };
 
@@ -397,25 +397,32 @@ class SLAService {
   getSLATargets(type, priority) {
     const typeKey = (type || '').toLowerCase();
     const priorityKey = (priority || '').toLowerCase();
+    
+    let config = null;
 
     // Intentar coincidencia exacta
     if (SLA_CONFIG[typeKey] && SLA_CONFIG[typeKey][priorityKey]) {
-      return SLA_CONFIG[typeKey][priorityKey];
+      config = SLA_CONFIG[typeKey][priorityKey];
     }
-
     // Intentar coincidencia parcial en prioridad (ej: "2 media" vs "media")
-    if (SLA_CONFIG[typeKey]) {
+    else if (SLA_CONFIG[typeKey]) {
       const priorities = Object.keys(SLA_CONFIG[typeKey]);
       const match = priorities.find(p => priorityKey.includes(p) || p.includes(priorityKey));
       if (match) {
-        return SLA_CONFIG[typeKey][match];
+        config = SLA_CONFIG[typeKey][match];
       }
-      // Si hay tipo pero no prioridad, usar la primera o una default del tipo
-      // Por ahora devolvemos default global
     }
 
     // Si no hay coincidencia, usar default
-    return SLA_CONFIG['default'];
+    if (!config) {
+      config = SLA_CONFIG['default'];
+    }
+    
+    // Convertir horas a minutos para el cálculo interno
+    return {
+      firstResponse: config.firstResponse * 60,
+      resolution: config.resolution * 60
+    };
   }
 
   /**
@@ -741,19 +748,6 @@ class SLAService {
           
           const duration = workingHours.calculateWorkingMinutes(periodStart, periodEnd, calendarType);
 
-          
-            console.log('═══════════════════════════════════');
-            console.log('Ticket:', ticket.number);
-            console.log('Estado:', stateAtPeriod);
-            console.log('Inicio:', moment(periodStart).format('YYYY-MM-DD HH:mm:ss'));
-            console.log('Fin:', moment(periodEnd).format('YYYY-MM-DD HH:mm:ss'));
-            console.log('Duración calculada:', duration, 'minutos');
-            console.log('Calendar Type:', calendarType);
-            console.log('═══════════════════════════════════');
-          
-
-          
-          
           if (isHighTech) {
             totalHighTechMinutes += duration;
           }
