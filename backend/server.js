@@ -1,10 +1,12 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const { testConnection } = require('./config/database');
 const apiRoutes = require('./routes/api');
+const { API } = require('./config/constants');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,10 +19,23 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Servir archivos estáticos (frontend)
-// IMPORTANTE: { index: false } evita que se sirva index.html automáticamente en la raíz
-// Esto nos permite interceptar la ruta '/' y decidir qué mostrar
-app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+// Rate limiting para prevenir abuso de API
+const apiLimiter = rateLimit({
+  windowMs: API.RATE_LIMIT.WINDOW_MS,
+  max: API.RATE_LIMIT.MAX_REQUESTS,
+  message: {
+    success: false,
+    error: 'Demasiadas peticiones desde esta IP, por favor intente más tarde.'
+  },
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
+// Aplicar rate limiting solo a rutas de API
+app.use('/api/', apiLimiter);
+
+// NOTA: Los archivos estáticos ahora se sirven desde el frontend React (Vite)
+// El backend solo maneja las rutas de API
 
 // Middleware de verificación de conexión a BD
 app.use(async (req, res, next) => {
@@ -59,9 +74,9 @@ app.use(async (req, res, next) => {
     return res.status(503).json({ success: false, error: 'Base de datos no disponible. Verifique conexión VPN.' });
   }
 
-  // 2. Si es navegación web (HTML), mostrar la página de VPN
+  // 2. Si es navegación web (HTML), devolver mensaje
   if (req.accepts('html')) {
-    return res.sendFile(path.join(__dirname, 'public', 'vpn_error.html'));
+    return res.status(503).send('<h1>Base de datos no disponible</h1><p>Verifique conexión VPN.</p>');
   }
 
   next();
@@ -70,9 +85,20 @@ app.use(async (req, res, next) => {
 // Rutas de API
 app.use('/api', apiRoutes);
 
-// Ruta principal - servir el frontend
+// Ruta principal - API info
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.json({
+    message: 'Zammad SLA Reporter API',
+    version: '2.0.0',
+    status: 'running',
+    endpoints: {
+      projects: '/api/projects',
+      agents: '/api/agents',
+      metrics: '/api/metrics',
+      tickets: '/api/tickets'
+    },
+    frontend: 'http://localhost:5173'
+  });
 });
 
 // Manejo de errores

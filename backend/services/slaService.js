@@ -1,6 +1,8 @@
 const { pool } = require('../config/database');
 const moment = require('moment');
 const workingHours = require('./workingHoursService');
+const logger = require('../utils/logger');
+const { DATABASE, STATE_GROUPS } = require('../config/constants');
 
 // CONFIGURACIÓN DE SLAs (Reglas de Negocio)
 // Tiempos en HORAS laborales (se convierten a minutos en getSLATargets)
@@ -50,11 +52,59 @@ const SLA_CONFIG = {
 };
 
 class SLAService {
-  
+
+  /**
+   * Helper: Get ticket state histories from database
+   * Consolidates repeated history queries across the service
+   * @param {number|Array} ticketIds - Single ticket ID or array of IDs
+   * @returns {Object|Array} - History rows (object with ticketId keys if array input)
+   */
+  async _getTicketHistories(ticketIds) {
+    const isArray = Array.isArray(ticketIds);
+    const ids = isArray ? ticketIds : [ticketIds];
+
+    if (!ids || ids.length === 0) return isArray ? {} : [];
+
+    try {
+      // Process in batches to avoid connection saturation
+      const historiesMap = {};
+      const batchSize = DATABASE.BATCH_SIZE;
+
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const batchIds = ids.slice(i, i + batchSize);
+
+        const result = await pool.query(`
+          SELECT
+            o_id,
+            created_at,
+            value_from,
+            value_to
+          FROM histories
+          WHERE o_id = ANY($1::int[])
+            AND history_attribute_id = $2
+          ORDER BY o_id, created_at ASC
+        `, [batchIds, DATABASE.HISTORY_ATTRIBUTE_IDS.STATE_CHANGE]);
+
+        result.rows.forEach(h => {
+          if (!historiesMap[h.o_id]) historiesMap[h.o_id] = [];
+          historiesMap[h.o_id].push(h);
+        });
+      }
+
+      // If single ID requested, return just that array
+      return isArray ? historiesMap : (historiesMap[ids[0]] || []);
+    } catch (error) {
+      logger.error('Error fetching ticket histories', error, { ticketIds: ids });
+      return isArray ? {} : [];
+    }
+  }
+
   // Obtener todos los tickets con información completa desde tabla tickets
   async getTicketsWithSLA(filters = {}) {
+    console.log('\n🎫 [SLAService] getTicketsWithSLA llamado con filtros:', filters);
     const { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType = 'laboral', type } = filters;
-    
+    console.log('🎫 [SLAService] Filtros desestructurados:', { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType, type });
+
     let query = `
       SELECT 
         t.id,
@@ -141,39 +191,17 @@ class SLAService {
     }
     
     query += ` ORDER BY t.created_at DESC`;
-    
+
+    console.log('🎫 [SLAService] SQL Query:', query);
+    console.log('🎫 [SLAService] SQL Params:', params);
+
     try {
       const result = await pool.query(query, params);
+      console.log('🎫 [SLAService] Tickets encontrados en DB:', result.rows?.length);
       
       // OPTIMIZACIÓN: Obtener historial de todos los tickets en una sola consulta
       const ticketIds = result.rows.map(t => t.id);
-      let historiesMap = {};
-
-      if (ticketIds && ticketIds.length > 0) {
-        // Procesar en lotes para evitar saturar la conexión (Connection terminated unexpectedly)
-        const batchSize = 200; // Procesar de a 200 tickets
-        
-        for (let i = 0; i < ticketIds.length; i += batchSize) {
-          const batchIds = ticketIds.slice(i, i + batchSize);
-          
-          const historiesResult = await pool.query(`
-            SELECT 
-              o_id,
-              created_at,
-              value_from,
-              value_to
-            FROM histories 
-            WHERE o_id = ANY($1::int[])
-              AND history_attribute_id = 13
-            ORDER BY o_id, created_at ASC
-          `, [batchIds]);
-
-          historiesResult.rows.forEach(h => {
-            if (!historiesMap[h.o_id]) historiesMap[h.o_id] = [];
-            historiesMap[h.o_id].push(h);
-          });
-        }
-      }
+      const historiesMap = await this._getTicketHistories(ticketIds);
 
       // Procesar cada ticket para calcular tiempos laborales correctamente
       const processedTickets = await Promise.all(
@@ -216,7 +244,7 @@ class SLAService {
       
       return processedTickets;
     } catch (error) {
-      console.error('Error en getTicketsWithSLA:', error);
+      logger.error('Error en getTicketsWithSLA', error, { filters });
       throw error;
     }
   }
@@ -301,7 +329,13 @@ class SLAService {
 
       return Math.round(totalHighTechMinutes);
     } catch (error) {
-      console.error(`Error calculando Tiempo Hightech para ticket ${ticketId}:`, error);
+      logger.error(`Error calculando Tiempo Hightech para ticket ${ticketId}`, error, {
+        ticketId,
+        calendarType,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      });
+      // Return 0 but log the error for investigation
       return 0;
     }
   }
@@ -360,7 +394,8 @@ class SLAService {
 
       return Math.round(totalWaitingMinutes);
     } catch (error) {
-      console.error('Error calculando Tiempo Cliente:', error);
+      logger.error('Error calculando Tiempo Cliente', error, { ticketId, calendarType });
+      // Return 0 but log the error for investigation
       return 0;
     }
   }
@@ -386,7 +421,8 @@ class SLAService {
       return workingHours.calculateWorkingMinutes(createdAt, new Date(), calendarType);
 
     } catch (error) {
-      console.error('Error calculando Primera Respuesta:', error);
+      logger.error('Error calculando Primera Respuesta', error, { ticketId, calendarType });
+      // Return 0 but log the error for investigation
       return 0;
     }
   }
@@ -464,8 +500,10 @@ class SLAService {
 
   // Obtener métricas agregadas de SLA
   async getSLAMetrics(filters = {}) {
+    console.log('\n📊 [SLAService] getSLAMetrics llamado con filtros:', filters);
     const tickets = await this.getTicketsWithSLA(filters);
-    
+    console.log('📊 [SLAService] Tickets obtenidos:', tickets?.length);
+
     const metrics = {
       total_tickets: tickets.length,
       closed_tickets: tickets.filter(t => t.close_at).length,
@@ -624,7 +662,7 @@ class SLAService {
         name: row.name
       }));
     } catch (error) {
-      console.error('Error en getProjects:', error);
+      logger.error('Error en getProjects', error);
       return [];
     }
   }
@@ -645,7 +683,7 @@ class SLAService {
         name: row.name
       }));
     } catch (error) {
-      console.error('Error en getAgents:', error);
+      logger.error('Error en getAgents', error);
       return [];
     }
   }
@@ -661,7 +699,7 @@ class SLAService {
       `);
       return result.rows.map(row => row.type);
     } catch (error) {
-      console.error('Error en getTicketTypes:', error);
+      logger.error('Error en getTicketTypes', error);
       return [];
     }
   }
@@ -850,7 +888,7 @@ class SLAService {
         history: stateHistory
       };
     } catch (error) {
-      console.error('Error en getTicketHistoryDetail:', error);
+      logger.error('Error en getTicketHistoryDetail', error, { ticketNumber, calendarType });
       throw error;
     }
   }
