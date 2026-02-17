@@ -155,7 +155,7 @@ const TicketsByStateChart = ({ tickets }) => {
               `Título: ${t.title || 'Sin título'}`,
               `Estado: ${t.state_name || 'N/A'}`,
               `Agente: ${t.owner_name || 'Sin asignar'}`,
-              `Tiempo en estado: ${t.hightech_time_formatted || '0 minutos'}`,
+              `Tiempo en estado: ${minutesToDays(t.hightech_time_minutes)} días`,
               `Proyecto: ${t.organization_name || 'N/A'}`,
             ];
           }
