@@ -15,7 +15,13 @@ const PORT = process.env.PORT || 3000;
 let isDbConnected = false;
 
 // Middleware
-app.use(cors());
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+    : '*',
+  credentials: true,
+};
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -55,14 +61,16 @@ app.use('/api', async (req, res, next) => {
 // Rutas de API
 app.use('/api', apiRoutes);
 
-// Servir frontend React en producción
-const frontendDist = path.join(__dirname, '../frontend/dist');
-app.use(express.static(frontendDist));
+// Servir frontend React en producción (desactivar si el frontend está en S3)
+if (process.env.SERVE_FRONTEND !== 'false') {
+  const frontendDist = path.join(__dirname, '../frontend/dist');
+  app.use(express.static(frontendDist));
 
-// SPA routing: cualquier ruta que no sea /api sirve index.html
-app.get('*', (req, res) => {
-  res.sendFile(path.join(frontendDist, 'index.html'));
-});
+  // SPA routing: cualquier ruta que no sea /api sirve index.html
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+}
 
 // Manejo de errores
 app.use((err, req, res, next) => {
@@ -95,7 +103,11 @@ async function startServer() {
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Servidor iniciado en http://0.0.0.0:${PORT}`);
-      console.log(`Frontend servido desde: ${frontendDist}`);
+      if (process.env.SERVE_FRONTEND !== 'false') {
+        console.log(`Frontend servido desde: ${path.join(__dirname, '../frontend/dist')}`);
+      } else {
+        console.log('Frontend: desactivado (servido desde S3)');
+      }
     });
 
   } catch (error) {

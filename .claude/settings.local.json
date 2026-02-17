@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(dir:*)",
-      "Bash(cmd /c setup-react.bat)"
+      "Bash(cmd /c setup-react.bat)",
+      "Bash(py:*)",
+      "Bash(export PATH=\"$PATH:/c/Users/Maximiliano Pulido/AppData/Roaming/Python/Python312/Scripts\")",
+      "Bash(eb:*)",
+      "Bash(aws:*)"
     ]
   }
 }
