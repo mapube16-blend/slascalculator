@@ -16,6 +16,7 @@ import MetricCard from '../components/metrics/MetricCard';
 import SLAProgress from '../components/metrics/SLAProgress';
 import SLATrendChart from '../components/charts/SLATrendChart';
 import TicketDistributionChart from '../components/charts/TicketDistributionChart';
+import TicketsByStateChart from '../components/charts/TicketsByStateChart';
 import TicketsTable from '../components/tables/TicketsTable';
 import VPNConnectionModal from '../components/modals/VPNConnectionModal';
 
@@ -270,6 +271,9 @@ const Dashboard = () => {
                 <SLATrendChart data={prepareTrendData()} />
                 <TicketDistributionChart data={prepareDistributionData()} />
               </div>
+
+              {/* Gráfica de Tickets por Estado */}
+              <TicketsByStateChart tickets={state.tickets} />
 
               {/* Tabla de Tickets */}
               <TicketsTable tickets={state.tickets} />
