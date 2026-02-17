@@ -130,7 +130,7 @@ class ExcelService {
     // Título
     sheet.mergeCells('A1:C1');
     const titleCell = sheet.getCell('A1');
-    titleCell.value = 'REPORTE DE SLA - ZAMMAD';
+    titleCell.value = 'REPORTE DE SLA - SERVICE CENTER';
     titleCell.font = { size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
     titleCell.fill = {
       type: 'pattern',
