@@ -73,6 +73,7 @@ class WorkingHoursService {
         break;
       
       case '24-7':
+      case '24x7':
         config.workStartHour = 0;      // 12 AM
         config.workEndHour = 24;       // 11:59 PM
         config.hoursPerDay = 24;       // 24 horas

@@ -54,6 +54,15 @@ const SLA_CONFIG = {
 class SLAService {
 
   /**
+   * Helper: Obtener la hora actual en formato compatible con la DB.
+   * La DB almacena timestamps con +5h de desfase, así que sumamos 5h
+   * al tiempo real para que calculateWorkingMinutes (que resta 5h) funcione correctamente.
+   */
+  _getNowInDbFormat() {
+    return moment().add(5, 'hours').toDate();
+  }
+
+  /**
    * Helper: Get ticket state histories from database
    * Consolidates repeated history queries across the service
    * @param {number|Array} ticketIds - Single ticket ID or array of IDs
@@ -209,7 +218,7 @@ class SLAService {
           const ticketHistories = historiesMap[ticket.id] || [];
 
           // Calcular Tiempo Hightech: excluir Espera, Resuelto, Cerrado
-          const highTechMinutes = await this.calculateHighTechTime(ticket.id, ticket.created_at, ticket.close_at || new Date(), calendarType, ticketHistories, ticket.state_name);
+          const highTechMinutes = await this.calculateHighTechTime(ticket.id, ticket.created_at, ticket.close_at || this._getNowInDbFormat(), calendarType, ticketHistories, ticket.state_name);
           
           // Calcular Tiempo Cliente: solo cuando está en "Espera"
           const clientMinutes = await this.calculateClientWaitingTime(ticket.id, calendarType, ticketHistories, ticket.created_at);
@@ -388,7 +397,7 @@ class SLAService {
 
       // Si todavía está en espera, contar hasta ahora
       if (waitingStart) {
-        const minutes = workingHours.calculateWorkingMinutes(waitingStart, new Date(), calendarType);
+        const minutes = workingHours.calculateWorkingMinutes(waitingStart, this._getNowInDbFormat(), calendarType);
         totalWaitingMinutes += minutes;
       }
 
@@ -418,7 +427,7 @@ class SLAService {
       }
 
       // Si no hay historial, calcular tiempo hasta ahora (ticket sin tocar)
-      return workingHours.calculateWorkingMinutes(createdAt, new Date(), calendarType);
+      return workingHours.calculateWorkingMinutes(createdAt, this._getNowInDbFormat(), calendarType);
 
     } catch (error) {
       logger.error('Error calculando Primera Respuesta', error, { ticketId, calendarType });
@@ -761,7 +770,7 @@ class SLAService {
       
       // Si no hay historial, todo el tiempo fue en un solo estado
       if (histories.length === 0) {
-        const endTime = ticket.close_at || new Date();
+        const endTime = ticket.close_at || this._getNowInDbFormat();
         const duration = workingHours.calculateWorkingMinutes(ticket.created_at, endTime, calendarType);
         const isHighTech = !excludedStates.includes(ticket.current_state);
         const isWaiting = waitStates.includes(ticket.current_state);
@@ -811,8 +820,8 @@ class SLAService {
           
           // Periodo: desde change.created_at hasta el siguiente cambio (o fin)
           const periodStart = change.created_at;
-          const periodEnd = nextChange ? nextChange.created_at : (ticket.close_at || new Date());
-          
+          const periodEnd = nextChange ? nextChange.created_at : (ticket.close_at || this._getNowInDbFormat());
+
           // El estado durante este período es el que se cambió a: change.value_to
           const stateAtPeriod = change.value_to;
           const isHighTech = !excludedStates.includes(stateAtPeriod);
@@ -841,7 +850,7 @@ class SLAService {
         // Si el ticket tiene un estado actual que no es el último del historial, agregar período final
         const lastChange = histories[histories.length - 1];
         if (lastChange.value_to !== ticket.current_state) {
-          const endTime = ticket.close_at || new Date();
+          const endTime = ticket.close_at || this._getNowInDbFormat();
           const duration = workingHours.calculateWorkingMinutes(lastChange.created_at, endTime, calendarType);
           const isHighTech = !excludedStates.includes(ticket.current_state);
           const isWaiting = waitStates.includes(ticket.current_state);
@@ -916,7 +925,7 @@ class SLAService {
 
         if (histories.length === 0) {
           // Sin historial, todo el tiempo fue en un solo estado
-          const endTime = ticket.close_at || new Date();
+          const endTime = ticket.close_at || this._getNowInDbFormat();
           const duration = workingHours.calculateWorkingMinutes(ticket.created_at, endTime, calendarType);
           
           stateHistory.push({
@@ -949,8 +958,8 @@ class SLAService {
             const nextChange = histories[i + 1];
             
             const periodStart = change.created_at;
-            const periodEnd = nextChange ? nextChange.created_at : (ticket.close_at || new Date());
-            
+            const periodEnd = nextChange ? nextChange.created_at : (ticket.close_at || this._getNowInDbFormat());
+
             const stateAtPeriod = change.value_to;
             
             // Calcular duración
