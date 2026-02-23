@@ -117,6 +117,127 @@ router.get('/ticket-history/:number', ticketHistoryValidation, validate, async (
   }
 });
 
+// Exportar datos consolidados para QuickSight (data aplanada, sin historial crudo)
+router.post('/export/quicksight', filtersValidation, validate, async (req, res) => {
+  try {
+    const filters = req.body;
+    const exportTimestamp = new Date().toISOString();
+
+    // Obtener tickets y métricas usando la lógica existente
+    const [tickets, metrics] = await Promise.all([
+      slaService.getTicketsWithSLA(filters),
+      slaService.getSLAMetrics(filters)
+    ]);
+
+    // 1. Tickets aplanados (sin raw_history para reducir peso)
+    const flatTickets = tickets.map(t => ({
+      ticket_id: t.id,
+      ticket_number: t.ticket_number,
+      title: t.title,
+      type: t.type,
+      state: t.state_name,
+      priority: t.priority_name,
+      organization: t.organization_name,
+      empresa: t.empresa,
+      owner: t.owner_name,
+      customer: t.customer_name,
+      created_at: t.created_at,
+      updated_at: t.updated_at,
+      close_at: t.close_at,
+      fase: t.bld_ticket_fase,
+      responsable: t.bld_responsable,
+      prioridad_cliente: t.bld_prority_customer,
+      // Tiempos calculados (minutos)
+      hightech_time_minutes: t.hightech_time_minutes,
+      client_time_minutes: t.client_time_minutes,
+      first_response_time_minutes: t.first_response_time_minutes,
+      // Tiempos formateados
+      hightech_time_formatted: t.hightech_time_formatted,
+      client_time_formatted: t.client_time_formatted,
+      // SLA targets y resultado
+      sla_first_response_target_minutes: t.sla_config.firstResponse,
+      sla_resolution_target_minutes: t.sla_config.resolution,
+      first_response_sla_met: t.first_response_sla_met,
+      resolution_sla_met: t.resolution_sla_met
+    }));
+
+    // 2. Resumen general
+    const summary = {
+      total_tickets: metrics.total_tickets,
+      closed_tickets: metrics.closed_tickets,
+      open_tickets: metrics.open_tickets,
+      first_response_met: metrics.first_response.met,
+      first_response_breached: metrics.first_response.breached,
+      first_response_compliance_rate: metrics.first_response.compliance_rate,
+      first_response_avg_minutes: metrics.first_response.avg_time_minutes,
+      resolution_met: metrics.resolution.met,
+      resolution_breached: metrics.resolution.breached,
+      resolution_compliance_rate: metrics.resolution.compliance_rate,
+      resolution_avg_minutes: metrics.resolution.avg_time_minutes
+    };
+
+    // 3. Métricas por agente (array aplanado)
+    const byAgent = Object.entries(metrics.by_agent).map(([name, data]) => ({
+      agent_name: name,
+      total_tickets: data.total,
+      closed_tickets: data.closed,
+      first_response_met: data.first_response_met,
+      first_response_breached: data.first_response_breached,
+      resolution_met: data.resolution_met,
+      resolution_breached: data.resolution_breached,
+      first_response_compliance_rate: data.total > 0
+        ? ((data.first_response_met / data.total) * 100).toFixed(2)
+        : '0.00',
+      resolution_compliance_rate: data.total > 0
+        ? ((data.resolution_met / data.total) * 100).toFixed(2)
+        : '0.00'
+    }));
+
+    // 4. Métricas por organización (array aplanado)
+    const byOrganization = Object.entries(metrics.by_organization).map(([name, data]) => ({
+      organization_name: name,
+      total_tickets: data.total,
+      closed_tickets: data.closed,
+      first_response_met: data.first_response_met,
+      first_response_breached: data.first_response_breached,
+      resolution_met: data.resolution_met,
+      resolution_breached: data.resolution_breached,
+      first_response_compliance_rate: data.total > 0
+        ? ((data.first_response_met / data.total) * 100).toFixed(2)
+        : '0.00',
+      resolution_compliance_rate: data.total > 0
+        ? ((data.resolution_met / data.total) * 100).toFixed(2)
+        : '0.00'
+    }));
+
+    // 5. Métricas por tipo (array aplanado)
+    const byType = Object.entries(metrics.by_type).map(([name, data]) => ({
+      type_name: name,
+      total_tickets: data.total,
+      closed_tickets: data.closed,
+      open_tickets: data.open
+    }));
+
+    res.json({
+      success: true,
+      metadata: {
+        exported_at: exportTimestamp,
+        filters_applied: filters,
+        total_records: flatTickets.length
+      },
+      data: {
+        tickets: flatTickets,
+        summary,
+        by_agent: byAgent,
+        by_organization: byOrganization,
+        by_type: byType
+      }
+    });
+  } catch (error) {
+    handleApiError(res, error, 'exportación QuickSight');
+  }
+});
+
 // Generar reporte Excel
 router.post('/generate-report', generateReportValidation, validate, async (req, res) => {
   try {
