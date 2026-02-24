@@ -1,0 +1,285 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Zammad SLA Reporter - Pipeline de datos para QuickSight
+  CRON (EC2) → Parquet → S3 → Glue Crawler → Glue Data Catalog → QuickSight
+
+# ============================================================
+# PARAMETROS
+# ============================================================
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+    Description: Ambiente de despliegue
+
+  ProjectName:
+    Type: String
+    Default: zammad-sla-reporter
+    Description: Nombre del proyecto (usado como prefijo en recursos)
+
+  S3BucketName:
+    Type: String
+    Default: ''
+    Description: >
+      Nombre del bucket S3 (dejar vacio para auto-generar).
+      Si ya existe un bucket, ingresar su nombre aqui.
+
+  GlueDatabaseName:
+    Type: String
+    Default: zammad_sla_db
+    Description: Nombre de la base de datos en Glue Data Catalog
+
+  S3DataPrefix:
+    Type: String
+    Default: sla-data
+    Description: Prefijo S3 donde se guardan los Parquet (latest snapshots)
+
+  ExistingEC2RoleName:
+    Type: String
+    Default: nuv-prod-ai-servicecenterEC2Role
+    Description: >
+      Nombre del IAM Role existente de la EC2.
+      Se le adjuntará una policy con permisos S3 + Glue.
+
+  CrawlerSchedule:
+    Type: String
+    Default: 'cron(30 7 * * ? *)'
+    Description: >
+      Schedule del Glue Crawler (cron AWS).
+      Default: 2:30 AM Colombia (7:30 UTC) — 30 min despues del CRON de la EC2.
+
+Conditions:
+  AutoGenerateBucketName: !Equals [!Ref S3BucketName, '']
+
+# ============================================================
+# RECURSOS
+# ============================================================
+Resources:
+
+  # ----------------------------------------------------------
+  # S3 BUCKET — Almacena los Parquet exportados por el CRON
+  # ----------------------------------------------------------
+  SLADataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !If
+        - AutoGenerateBucketName
+        - !Sub '${ProjectName}-${Environment}-${AWS::AccountId}'
+        - !Ref S3BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          # Archivos historicos → Glacier despues de 90 dias
+          - Id: ArchiveHistory
+            Prefix: !Sub '${S3DataPrefix}-history/'
+            Status: Enabled
+            Transitions:
+              - StorageClass: GLACIER
+                TransitionInDays: 90
+            ExpirationInDays: 365
+          # Limpiar versiones antiguas del snapshot "latest"
+          - Id: CleanOldVersions
+            Prefix: !Sub '${S3DataPrefix}/'
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ----------------------------------------------------------
+  # IAM ROLE — Para Glue Crawler
+  # ----------------------------------------------------------
+  GlueCrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-glue-crawler-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3ReadAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt SLADataBucket.Arn
+                  - !Sub '${SLADataBucket.Arn}/*'
+
+  # ----------------------------------------------------------
+  # IAM POLICY — Se adjunta al role existente de la EC2
+  # Permisos: S3 write (Parquet) + Glue Crawler trigger
+  # ----------------------------------------------------------
+  EC2ExporterPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectName}-ec2-s3-glue-${Environment}'
+      Description: !Sub 'Permite a la EC2 subir Parquet a S3 y triggerear Glue Crawler (${Environment})'
+      Roles:
+        - !Ref ExistingEC2RoleName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: S3WriteParquet
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource:
+              - !GetAtt SLADataBucket.Arn
+              - !Sub '${SLADataBucket.Arn}/*'
+          - Sid: GlueCrawlerTrigger
+            Effect: Allow
+            Action:
+              - glue:StartCrawler
+              - glue:GetCrawler
+            Resource:
+              - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:crawler/${ProjectName}-*'
+
+  # ----------------------------------------------------------
+  # GLUE DATABASE — Catalogo para QuickSight
+  # ----------------------------------------------------------
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref GlueDatabaseName
+        Description: !Sub 'Datos SLA de Zammad (${Environment}) — generados por CRON diario'
+
+  # ----------------------------------------------------------
+  # GLUE CRAWLER — Descubre tablas desde los Parquet en S3
+  # Escanea: s3://bucket/sla-data/tickets/
+  #          s3://bucket/sla-data/ticket_timeline/
+  #          s3://bucket/sla-data/summary/
+  #          s3://bucket/sla-data/by_agent/
+  #          s3://bucket/sla-data/by_organization/
+  #          s3://bucket/sla-data/by_type/
+  #          s3://bucket/sla-data/metadata/
+  # ----------------------------------------------------------
+  GlueCrawlerLatest:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub '${ProjectName}-crawler-latest-${Environment}'
+      Description: >
+        Crawl latest SLA Parquet snapshots to update Glue Data Catalog.
+        Triggered daily after CRON export.
+      Role: !GetAtt GlueCrawlerRole.Arn
+      DatabaseName: !Ref GlueDatabaseName
+      Targets:
+        S3Targets:
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/tickets/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/ticket_timeline/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/summary/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/by_agent/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/by_organization/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/by_type/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/metadata/'
+      Schedule:
+        ScheduleExpression: !Ref CrawlerSchedule
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+      RecrawlPolicy:
+        RecrawlBehavior: CRAWL_EVERYTHING
+      Configuration: >
+        {
+          "Version": 1.0,
+          "Grouping": {
+            "TableGroupingPolicy": "CombineCompatibleSchemas"
+          },
+          "CrawlerOutput": {
+            "Partitions": {
+              "AddOrUpdateBehavior": "InheritFromTable"
+            }
+          }
+        }
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ----------------------------------------------------------
+  # GLUE CRAWLER (HISTORICO) — Opcional, para queries Athena
+  # ----------------------------------------------------------
+  GlueCrawlerHistory:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub '${ProjectName}-crawler-history-${Environment}'
+      Description: >
+        Crawl historical SLA data with Hive-style partitions (year/month/day).
+        Run on-demand or weekly for Athena trend analysis.
+      Role: !GetAtt GlueCrawlerRole.Arn
+      DatabaseName: !Ref GlueDatabaseName
+      TablePrefix: 'hist_'
+      Targets:
+        S3Targets:
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}-history/tickets/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}-history/ticket_timeline/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}-history/summary/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}-history/by_agent/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}-history/by_organization/'
+          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}-history/by_type/'
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+      RecrawlPolicy:
+        RecrawlBehavior: CRAWL_NEW_FOLDERS_ONLY
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+Outputs:
+  S3BucketName:
+    Description: Nombre del bucket S3 donde se guardan los Parquet
+    Value: !Ref SLADataBucket
+    Export:
+      Name: !Sub '${ProjectName}-s3-bucket-${Environment}'
+
+  S3BucketArn:
+    Description: ARN del bucket S3
+    Value: !GetAtt SLADataBucket.Arn
+
+  GlueDatabaseName:
+    Description: Nombre de la base de datos en Glue Data Catalog
+    Value: !Ref GlueDatabaseName
+    Export:
+      Name: !Sub '${ProjectName}-glue-db-${Environment}'
+
+  GlueCrawlerLatestName:
+    Description: Nombre del Glue Crawler (latest snapshots)
+    Value: !Ref GlueCrawlerLatest
+
+  GlueCrawlerHistoryName:
+    Description: Nombre del Glue Crawler (historical data)
+    Value: !Ref GlueCrawlerHistory
+
+  EC2PolicyArn:
+    Description: ARN de la policy adjuntada al role de la EC2
+    Value: !Ref EC2ExporterPolicy
+
+  QuickSightConnectionInfo:
+    Description: Info para conectar QuickSight
+    Value: !Sub >
+      Glue Database: ${GlueDatabaseName}
+      Tables: tickets, ticket_timeline, summary, by_agent, by_organization, by_type, metadata
+      Region: ${AWS::Region}

@@ -210,23 +210,79 @@ Retorna toda la data de SLA en formato aplanado (sin objetos anidados), listo pa
 }
 ```
 
-### Pipeline AWS QuickSight (propuesto)
+### Pipeline AWS QuickSight (CRON → S3 → Glue → QuickSight)
 
 ```
-EventBridge (cada 30 min) --> Lambda (fetch + write CSV) --> S3 --> QuickSight SPICE
-                                       |
-                                       v HTTP POST
-                             Backend /api/export/quicksight
+EC2 CRON (2:00 AM COT)          Glue Crawler (2:30 AM COT)         QuickSight
+       │                                │                              │
+       ▼                                ▼                              ▼
+  Zammad DB ──► Parquet ──► S3 ──► Glue Data Catalog ──► Athena ──► SPICE Dataset
+  (PostgreSQL)   (7 tablas)   │         (auto-discover)
+                              │
+                              └── sla-data/
+                                    ├── tickets/data.parquet
+                                    ├── ticket_timeline/data.parquet
+                                    ├── summary/data.parquet
+                                    ├── by_agent/data.parquet
+                                    ├── by_organization/data.parquet
+                                    ├── by_type/data.parquet
+                                    └── metadata/data.parquet
 ```
+
+**Tablas en Glue Data Catalog:**
+
+| Tabla | Descripcion | Registros aprox |
+|-------|-------------|-----------------|
+| `tickets` | Todos los tickets con metricas SLA aplanadas | ~1,700+ |
+| `ticket_timeline` | Historial de cambios de estado por ticket | ~10,000+ |
+| `summary` | Resumen global de cumplimiento SLA | 1 |
+| `by_agent` | Metricas SLA por agente | ~15 |
+| `by_organization` | Metricas SLA por organizacion/proyecto | ~20 |
+| `by_type` | Conteo de tickets por tipo (Incidente, RFC) | ~5 |
+| `metadata` | Timestamp y version de la exportacion | 1 |
+
+**Costos estimados:**
 
 | Servicio | Costo/mes |
 |----------|-----------|
-| EventBridge (1,440 invocaciones) | $0.00 (free tier) |
-| Lambda (1,440 x 2s x 128MB) | ~$0.04 |
-| S3 (storage + PUTs) | ~$0.01 |
+| S3 (storage ~50MB + PUTs) | ~$0.02 |
+| Glue Crawler (1 run/dia x 30 dias) | ~$0.30 |
+| Glue Data Catalog (7 tablas) | $0.00 (free tier) |
 | QuickSight Author (1 usuario) | $12-24 |
+| **Total** | **~$12-25** |
 
-### Probar en Postman
+### Desplegar infraestructura AWS
+
+```bash
+# 1. Desplegar S3 + Glue + IAM
+./aws/deploy-infra.sh
+
+# 2. Ver outputs (bucket name, crawler name, instance profile)
+./aws/deploy-infra.sh --outputs
+
+# 3. Configurar .env en la EC2 con el bucket y crawler
+nano /home/ec2-user/zammad-sla-reporter/.env
+# Agregar:
+#   AWS_S3_BUCKET=<bucket-name-del-output>
+#   AWS_GLUE_CRAWLER_NAME=<crawler-name-del-output>
+#   AWS_REGION=us-east-1
+
+# 4. Asociar el Instance Profile a la EC2
+aws ec2 associate-iam-instance-profile \
+  --instance-id <INSTANCE-ID> \
+  --iam-instance-profile Name=zammad-sla-reporter-ec2-profile-prod
+
+# 5. Ejecutar el CRON manualmente para verificar
+cd /home/ec2-user/zammad-sla-reporter/backend
+node -e "require('./cron/sla-exporter-cron').exportSLAToQuickSight().then(console.log)"
+
+# 6. Conectar QuickSight:
+#    QuickSight → Datasets → New dataset → Athena
+#    Database: zammad_sla_db
+#    Tables: tickets, summary, by_agent, etc.
+```
+
+### Probar endpoint en Postman
 
 ```
 POST http://10.67.4.151:443/api/export/quicksight
@@ -248,6 +304,10 @@ Body: {}
 | `TIMEZONE` | Zona horaria | `America/Mexico_City` |
 | `CORS_ORIGIN` | Dominios permitidos para CORS | `*` |
 | `SERVE_FRONTEND` | Servir frontend desde Express | `true` |
+| `AWS_S3_BUCKET` | Bucket S3 para Parquet (pipeline) | `zammad-sla-reporter-prod-123456` |
+| `AWS_S3_PREFIX` | Prefijo S3 de los datos | `sla-data` |
+| `AWS_REGION` | Region AWS | `us-east-1` |
+| `AWS_GLUE_CRAWLER_NAME` | Nombre del Glue Crawler | `zammad-sla-reporter-crawler-latest-prod` |
 
 ## Repositorio
 

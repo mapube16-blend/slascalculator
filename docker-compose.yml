@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zammad-sla-reporter
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      PORT: 3000
+      TIMEZONE: ${TIMEZONE:-America/Bogota}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET}
+      AWS_S3_PREFIX: ${AWS_S3_PREFIX:-sla-data}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_GLUE_CRAWLER_NAME: ${AWS_GLUE_CRAWLER_NAME}
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    restart: unless-stopped
+    networks:
+      - sla-network
+
+networks:
+  sla-network:
+    driver: bridge

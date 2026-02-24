@@ -10,10 +10,18 @@
     "start": "cd backend && node server.js",
     "install:all": "cd backend && npm install && cd ../frontend && npm install"
   },
-  "keywords": ["zammad", "sla", "reports", "react"],
+  "keywords": [
+    "zammad",
+    "sla",
+    "reports",
+    "react"
+  ],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "node-cron": "^4.2.1"
   }
 }

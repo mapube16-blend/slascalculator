@@ -7,6 +7,7 @@ require('dotenv').config();
 const { testConnection } = require('./config/database');
 const apiRoutes = require('./routes/api');
 const { API } = require('./config/constants');
+const { initializeCronJobs } = require('./cron/cron-scheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -108,6 +109,9 @@ async function startServer() {
       } else {
         console.log('Frontend: desactivado (servido desde S3)');
       }
+
+      // Inicializar CRON jobs
+      initializeCronJobs();
     });
 
   } catch (error) {

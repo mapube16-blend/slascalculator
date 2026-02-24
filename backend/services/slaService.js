@@ -223,6 +223,7 @@ class SLAService {
         for (const event of eventGroups[ts]) {
           if (event.type === 'state') currentState = event.to;
           if (event.type === 'owner') currentOwner = event.to || 'Sin asignar';
+          if (currentOwner === '-' || !currentOwner) currentOwner = 'Sin asignar';
         }
         periodStart = eventTime;
       }
