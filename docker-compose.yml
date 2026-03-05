@@ -18,9 +18,9 @@ services:
       AWS_S3_PREFIX: ${AWS_S3_PREFIX:-sla-data}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_GLUE_CRAWLER_NAME: ${AWS_GLUE_CRAWLER_NAME}
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
+    # volumes:          # Solo para desarrollo local (hot-reload). En producción
+    #   - ./backend:/app  # comentar estos volúmenes para usar los archivos del image.
+    #   - /app/node_modules
     restart: unless-stopped
     networks:
       - sla-network

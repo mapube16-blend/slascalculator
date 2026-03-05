@@ -262,9 +262,8 @@ class SLAService {
 
   // Obtener todos los tickets con información completa desde tabla tickets
   async getTicketsWithSLA(filters = {}) {
-    console.log('\n🎫 [SLAService] getTicketsWithSLA llamado con filtros:', filters);
     const { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType = 'laboral', type } = filters;
-    console.log('🎫 [SLAService] Filtros desestructurados:', { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType, type });
+    logger.debug('[SLAService] getTicketsWithSLA', { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType, type });
 
     let query = `
       SELECT 
@@ -357,7 +356,7 @@ class SLAService {
 
     try {
       const result = await pool.query(query, params);
-      console.log('🎫 [SLAService] Tickets encontrados en DB:', result.rows?.length);
+      logger.debug('[SLAService] Tickets encontrados en DB', { count: result.rows?.length });
       // Normalizar timestamps de tickets a objetos Date en UTC-5
       result.rows = result.rows.map(t => ({
         ...t,
@@ -640,9 +639,9 @@ class SLAService {
 
   // Obtener métricas agregadas de SLA
   async getSLAMetrics(filters = {}) {
-    console.log('\n📊 [SLAService] getSLAMetrics llamado con filtros:', filters);
+    logger.debug('[SLAService] getSLAMetrics', { filters });
     const tickets = await this.getTicketsWithSLA(filters);
-    console.log('📊 [SLAService] Tickets obtenidos:', tickets?.length);
+    logger.debug('[SLAService] Tickets procesados', { count: tickets?.length });
 
     const metrics = {
       total_tickets: tickets.length,

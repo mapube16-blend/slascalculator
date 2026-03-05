@@ -1,29 +1,39 @@
 # Blend 360 - Reportes SLA para Zammad
 
-Sistema de reportes de Acuerdos de Nivel de Servicio (SLA) para tickets de Zammad. Permite visualizar metricas, cumplimiento de SLA y exportar informes en Excel.
+Sistema de reportes de Acuerdos de Nivel de Servicio (SLA) para tickets de Zammad. Permite visualizar métricas, cumplimiento de SLA y exportar informes en Excel.
 
 ## Requisitos
 
-- Node.js 18+
+- Node.js 20+ (solo para desarrollo local)
 - Acceso a la base de datos PostgreSQL de Zammad
+- Docker y Docker Compose (para producción)
 - VPN corporativa (para acceder a la EC2 y al RDS)
 
 ## Estructura del proyecto
 
 ```
 zammad-sla-reporter/
-├── backend/              # API Express (Node.js)
-│   ├── server.js         # Servidor principal
-│   ├── Dockerfile        # Imagen Docker para despliegue
-│   ├── routes/           # Endpoints API
-│   ├── services/         # Logica de negocio (SLA, Excel)
-│   └── config/           # Base de datos, constantes
-├── frontend/             # App React (Vite)
-│   ├── src/              # Codigo fuente React
-│   ├── public/           # Assets estaticos (logo)
-│   └── dist/             # Build de produccion (generado)
-├── deploy.sh             # Script de despliegue
-└── package.json          # Scripts raiz
+├── backend/                  # API Express (Node.js)
+│   ├── server.js             # Servidor principal
+│   ├── Dockerfile            # Imagen multi-stage: compila frontend + backend
+│   ├── routes/               # Endpoints API
+│   ├── services/             # Lógica de negocio (SLA, Excel, exportación)
+│   ├── cron/                 # Jobs programados (exportación a S3/QuickSight)
+│   ├── middleware/           # Middleware Express
+│   ├── utils/                # Utilidades
+│   └── config/               # Base de datos, constantes (UTC offset, estados)
+├── frontend/                 # App React (Vite)
+│   ├── src/                  # Código fuente React
+│   │   ├── components/       # Componentes UI reutilizables y de negocio
+│   │   ├── context/          # Estado global (AppContext)
+│   │   ├── pages/            # Páginas de la aplicación
+│   │   └── services/         # Llamadas a la API
+│   └── public/               # Assets estáticos (logo)
+├── .github/workflows/        # CI/CD: build → push a GHCR → deploy en EC2
+├── aws/                      # Scripts de infraestructura AWS (S3, Glue)
+├── docker-compose.yml        # Orquestación de contenedores en producción
+├── .env.example              # Plantilla de variables de entorno
+└── DATABASE_DICTIONARY.md    # Diccionario de la base de datos de Zammad
 ```
 
 ## Desarrollo local
@@ -32,7 +42,6 @@ zammad-sla-reporter/
 ```bash
 cp .env.example backend/.env
 ```
-
 Editar `backend/.env` con las credenciales reales de la base de datos.
 
 2. Instalar dependencias:
@@ -48,90 +57,109 @@ npm run dev
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3000/api
 
-## Produccion
+## Producción
 
 ### Infraestructura
 
 | Componente | Servicio | Detalle |
-|-----------|----------|---------|
-| Backend + Frontend | EC2 | `10.67.4.151` (IP privada, requiere VPN) |
+|---|---|---|
+| Backend + Frontend | EC2 (Docker) | `10.67.4.151` (IP privada, requiere VPN) |
 | Base de datos | RDS PostgreSQL | Base de datos de Zammad (solo lectura) |
-| Puerto | 443 | Abierto en Security Group |
+| Registro de imágenes | GitHub Container Registry (GHCR) | `ghcr.io/mapube16/zammad-sla-reporter-backend` |
+| Puerto | 3000 | Expuesto por Docker Compose |
 
-### Acceder al servidor
+### CI/CD automático
 
-```bash
-ssh -i "nuv-prod-ai-servicecenter-informespk 1.pem" ec2-user@10.67.4.151
+El proyecto usa GitHub Actions para despliegue continuo. Cada push a `main`:
+
+1. **Build**: Construye la imagen Docker (multi-stage: compila el frontend React con Vite, luego monta el backend Node.js con el `dist/` incluido).
+2. **Push**: Sube la imagen a GitHub Container Registry (GHCR).
+3. **Deploy**: Se conecta a la EC2 por SSH, hace `docker compose pull` y `docker compose up -d`.
+
+```
+git push origin main  →  GitHub Actions  →  GHCR  →  EC2 (docker compose)
 ```
 
-### Desplegar cambios en produccion
+**Secrets requeridos en el repositorio GitHub** (`Settings → Secrets and variables → Actions`):
 
-**1. Hacer push de los cambios desde tu PC:**
+| Secret | Descripción |
+|---|---|
+| `DEPLOY_HOST` | IP o hostname de la EC2 |
+| `DEPLOY_USER` | Usuario SSH (ej. `ec2-user`) |
+| `DEPLOY_SSH_KEY` | Clave privada SSH (contenido del `.pem`) |
+| `DEPLOY_PORT` | Puerto SSH (por defecto `22`) |
+| `DEPLOY_PATH` | Ruta en la EC2 donde está el `docker-compose.yml` |
+
+### Desplegar cambios
+
 ```bash
+# Solo hacer push — el pipeline se encarga del resto
 git add .
 git commit -m "descripcion del cambio"
-git push
+git push origin main
 ```
 
-**2. Conectarse a la EC2 por SSH y actualizar:**
+El pipeline puede verse en `Actions` del repositorio GitHub.
+
+### Acceder al servidor (solo para diagnóstico)
+
 ```bash
 ssh -i "nuv-prod-ai-servicecenter-informespk 1.pem" ec2-user@10.67.4.151
 ```
 
-**3. Si cambiaste el backend:**
+Una vez conectado:
 ```bash
-cd /home/ec2-user/slascalculator
-git pull
-cd backend && npm install
-sudo kill $(pgrep -f "node server.js")
-sudo nohup node server.js > /home/ec2-user/app.log 2>&1 &
+# Ver logs del contenedor en tiempo real
+docker logs -f zammad-sla-reporter
+
+# Ver estado del contenedor
+docker compose ps
+
+# Reiniciar manualmente (solo si es necesario)
+docker compose restart
 ```
 
-**4. Si cambiaste el frontend:**
-
-Primero en tu PC local:
-```bash
-cd frontend
-npm run build
-```
-
-Subir el build a la EC2 (desde otra terminal local):
-```bash
-scp -i "nuv-prod-ai-servicecenter-informespk 1.pem" -r frontend/dist ec2-user@10.67.4.151:/home/ec2-user/slascalculator/frontend/
-```
-
-Luego reiniciar el servidor en la EC2:
-```bash
-sudo kill $(pgrep -f "node server.js")
-cd /home/ec2-user/slascalculator/backend
-sudo nohup node server.js > /home/ec2-user/app.log 2>&1 &
-```
-
-### Ver logs del servidor
-
-```bash
-# Logs en tiempo real
-tail -f /home/ec2-user/app.log
-
-# Estado del servidor
-curl http://localhost:443/api/projects | head -c 100
-```
-
-### URL de la aplicacion
+### URL de la aplicación
 
 ```
-http://10.67.4.151:443
+http://10.67.4.151:3000
 ```
 Requiere VPN corporativa activa.
 
-## Endpoint de exportacion para AWS QuickSight
+## Calendarios SLA soportados
+
+| Tipo | Horario | Días | Festivos Colombia |
+|---|---|---|---|
+| `laboral` | 8:00 AM – 5:00 PM | Lunes a Viernes | Excluidos |
+| `extended` | 8:00 AM – 10:00 PM | Lunes a Domingo | No excluidos |
+| `24-7` | 24 horas | Todos los días | No excluidos |
+
+## API — Endpoint principal
+
+### `POST /api/metrics`
+
+Retorna métricas SLA filtradas.
+
+**Request Body (todos los campos son opcionales):**
+```json
+{
+  "startDate": "2026-01-01",
+  "endDate": "2026-02-28",
+  "organizationId": 5,
+  "ownerId": 10,
+  "state": "Abierto",
+  "type": "Incidente",
+  "calendarType": "laboral"
+}
+```
+
+## API — Exportación para AWS QuickSight
 
 ### `POST /api/export/quicksight`
 
-Retorna toda la data de SLA en formato aplanado (sin objetos anidados), listo para ser consumido por una Lambda de AWS y escrito a S3 como CSV para QuickSight.
+Retorna toda la data de SLA en formato aplanado (sin objetos anidados), listo para ser consumido por una Lambda de AWS y escrito a S3 como Parquet para QuickSight.
 
 **Request Body (todos los campos son opcionales):**
-
 ```json
 {
   "startDate": "2026-01-01T00:00:00Z",
@@ -144,10 +172,7 @@ Retorna toda la data de SLA en formato aplanado (sin objetos anidados), listo pa
 }
 ```
 
-**Tipos de calendario:** `laboral` (L-V 8am-5pm), `24-7` (24 horas), `extended` (todos los dias 8am-10pm)
-
 **Response:**
-
 ```json
 {
   "success": true,
@@ -187,25 +212,9 @@ Retorna toda la data de SLA en formato aplanado (sin objetos anidados), listo pa
       "first_response_compliance_rate": "85.71",
       "resolution_compliance_rate": "79.59"
     },
-    "by_agent": [
-      {
-        "agent_name": "Juan Perez",
-        "total_tickets": 45,
-        "first_response_compliance_rate": "93.33",
-        "resolution_compliance_rate": "77.78"
-      }
-    ],
-    "by_organization": [
-      {
-        "organization_name": "[P2068] UNA - Contrato 4",
-        "total_tickets": 30,
-        "first_response_compliance_rate": "93.33",
-        "resolution_compliance_rate": "73.33"
-      }
-    ],
-    "by_type": [
-      { "type_name": "Incidente", "total_tickets": 100, "closed_tickets": 80, "open_tickets": 20 }
-    ]
+    "by_agent": [...],
+    "by_organization": [...],
+    "by_type": [...]
   }
 }
 ```
@@ -231,22 +240,22 @@ EC2 CRON (2:00 AM COT)          Glue Crawler (2:30 AM COT)         QuickSight
 
 **Tablas en Glue Data Catalog:**
 
-| Tabla | Descripcion | Registros aprox |
-|-------|-------------|-----------------|
-| `tickets` | Todos los tickets con metricas SLA aplanadas | ~1,700+ |
+| Tabla | Descripción | Registros aprox |
+|---|---|---|
+| `tickets` | Todos los tickets con métricas SLA aplanadas | ~1,700+ |
 | `ticket_timeline` | Historial de cambios de estado por ticket | ~10,000+ |
 | `summary` | Resumen global de cumplimiento SLA | 1 |
-| `by_agent` | Metricas SLA por agente | ~15 |
-| `by_organization` | Metricas SLA por organizacion/proyecto | ~20 |
+| `by_agent` | Métricas SLA por agente | ~15 |
+| `by_organization` | Métricas SLA por organización/proyecto | ~20 |
 | `by_type` | Conteo de tickets por tipo (Incidente, RFC) | ~5 |
-| `metadata` | Timestamp y version de la exportacion | 1 |
+| `metadata` | Timestamp y versión de la exportación | 1 |
 
 **Costos estimados:**
 
 | Servicio | Costo/mes |
-|----------|-----------|
+|---|---|
 | S3 (storage ~50MB + PUTs) | ~$0.02 |
-| Glue Crawler (1 run/dia x 30 dias) | ~$0.30 |
+| Glue Crawler (1 run/día x 30 días) | ~$0.30 |
 | Glue Data Catalog (7 tablas) | $0.00 (free tier) |
 | QuickSight Author (1 usuario) | $12-24 |
 | **Total** | **~$12-25** |
@@ -260,9 +269,7 @@ EC2 CRON (2:00 AM COT)          Glue Crawler (2:30 AM COT)         QuickSight
 # 2. Ver outputs (bucket name, crawler name, instance profile)
 ./aws/deploy-infra.sh --outputs
 
-# 3. Configurar .env en la EC2 con el bucket y crawler
-nano /home/ec2-user/zammad-sla-reporter/.env
-# Agregar:
+# 3. Agregar variables al .env en la EC2
 #   AWS_S3_BUCKET=<bucket-name-del-output>
 #   AWS_GLUE_CRAWLER_NAME=<crawler-name-del-output>
 #   AWS_REGION=us-east-1
@@ -273,7 +280,7 @@ aws ec2 associate-iam-instance-profile \
   --iam-instance-profile Name=zammad-sla-reporter-ec2-profile-prod
 
 # 5. Ejecutar el CRON manualmente para verificar
-cd /home/ec2-user/zammad-sla-reporter/backend
+cd /home/ec2-user/slascalculator/backend
 node -e "require('./cron/sla-exporter-cron').exportSLAToQuickSight().then(console.log)"
 
 # 6. Conectar QuickSight:
@@ -282,31 +289,22 @@ node -e "require('./cron/sla-exporter-cron').exportSLAToQuickSight().then(consol
 #    Tables: tickets, summary, by_agent, etc.
 ```
 
-### Probar endpoint en Postman
-
-```
-POST http://10.67.4.151:443/api/export/quicksight
-Content-Type: application/json
-
-Body: {}
-```
-
 ## Variables de entorno
 
-| Variable | Descripcion | Ejemplo |
-|----------|-------------|---------|
+| Variable | Descripción | Ejemplo |
+|---|---|---|
 | `DB_HOST` | Host de PostgreSQL (Zammad) | `xxx.rds.amazonaws.com` |
 | `DB_PORT` | Puerto de PostgreSQL | `5432` |
 | `DB_NAME` | Nombre de la base de datos | `postgres` |
 | `DB_USER` | Usuario de la base de datos | `cloud` |
-| `DB_PASSWORD` | Contrasena de la base de datos | `****` |
-| `PORT` | Puerto del servidor | `443` |
-| `TIMEZONE` | Zona horaria | `America/Mexico_City` |
+| `DB_PASSWORD` | Contraseña de la base de datos | `****` |
+| `PORT` | Puerto del servidor | `3000` |
+| `TIMEZONE` | Zona horaria | `America/Bogota` |
 | `CORS_ORIGIN` | Dominios permitidos para CORS | `*` |
 | `SERVE_FRONTEND` | Servir frontend desde Express | `true` |
 | `AWS_S3_BUCKET` | Bucket S3 para Parquet (pipeline) | `zammad-sla-reporter-prod-123456` |
 | `AWS_S3_PREFIX` | Prefijo S3 de los datos | `sla-data` |
-| `AWS_REGION` | Region AWS | `us-east-1` |
+| `AWS_REGION` | Región AWS | `us-east-1` |
 | `AWS_GLUE_CRAWLER_NAME` | Nombre del Glue Crawler | `zammad-sla-reporter-crawler-latest-prod` |
 
 ## Repositorio
