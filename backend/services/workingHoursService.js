@@ -1,5 +1,6 @@
 const moment = require('moment');
 require('moment-business-days');
+const { DATABASE } = require('../config/constants');
 
 /**
  * Servicio para calcular tiempo laboral según diferentes calendarios
@@ -36,16 +37,18 @@ class WorkingHoursService {
       moment(`${year}-12-25`) // Navidad
     ];
 
-    // Feriados móviles 2025-2026
+    // Feriados móviles — actualizar cada año.
+    // TODO: Reemplazar con librería `date-holidays` o tabla de BD para soporte dinámico.
     if (year === 2025) {
       fixedHolidays.push(moment('2025-04-18')); // Viernes Santo 2025
       fixedHolidays.push(moment('2025-05-12')); // Corpus Christi 2025
       fixedHolidays.push(moment('2025-05-19')); // Sagrado Corazón 2025
-    }
-    if (year === 2026) {
+    } else if (year === 2026) {
       fixedHolidays.push(moment('2026-04-03')); // Viernes Santo 2026
       fixedHolidays.push(moment('2026-05-28')); // Corpus Christi 2026
       fixedHolidays.push(moment('2026-06-04')); // Sagrado Corazón 2026
+    } else if (year > 2026) {
+      console.warn(`[WorkingHoursService] Festivos móviles no configurados para ${year}. Los cálculos de SLA pueden ser incorrectos en días festivos.`);
     }
 
     // Convertir a array de strings
@@ -103,18 +106,17 @@ class WorkingHoursService {
    * @param {string} calendarType - Tipo de calendario ('laboral', '24-7', 'extended')
    * @returns {number} Minutos laborales
    */
-calculateWorkingMinutes(startDate, endDate, calendarType = 'laboral') {
+  calculateWorkingMinutes(startDate, endDate, calendarType = 'laboral') {
     if (!startDate || !endDate) {
       return 0;
     }
 
     const config = this.getCalendarConfig(calendarType);
 
-    // 1. Tomamos la fecha
-    // 2. Restamos 5 horas para corregir el error de guardado de la DB
-    // 3. Aplicamos utcOffset(-5) para ponerlo en hora colombiana
-    const start = moment(startDate).utcOffset(-5);
-    const end = moment(endDate).utcOffset(-5);
+    // Interpretamos las fechas en UTC-5 (Colombia) para que .hour() devuelva
+    // la hora local correcta al comparar contra el horario laboral.
+    const start = moment(startDate).utcOffset(DATABASE.DB_UTC_OFFSET);
+    const end = moment(endDate).utcOffset(DATABASE.DB_UTC_OFFSET);
 
     if (end.isBefore(start)) {
       return 0;

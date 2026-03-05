@@ -9,7 +9,10 @@ const DATABASE = {
   HISTORY_ATTRIBUTE_IDS: {
     STATE_CHANGE: 13, // history_attribute_id for ticket state changes
     OWNER_CHANGE: 14, // history_attribute_id for ticket owner/agent changes
-  }
+  },
+  // UTC offset for Colombia (UTC-5). The DB stores timestamps with this offset.
+  // Update this constant if the server timezone changes, instead of modifying each service.
+  DB_UTC_OFFSET: -5
 };
 
 // Ticket State Names (as stored in database)
@@ -140,6 +143,37 @@ const EXCEL = {
   CHART_HEIGHT: 400
 };
 
+// Company name lookup by bld_cliente_padre ID.
+// TODO: Move to database table when DB schema allows it.
+const EMPRESA_NAMES = {
+  '1':  'Policía Nacional',
+  '2':  'Universidad Nacional',
+  '3':  'Coljuegos',
+  '4':  'Alcaldía de Cali',
+  '5':  'Banco Interamericano de Desarrollo',
+  '6':  'Blend360',
+  '7':  'BTG',
+  '8':  'Cámara de Comercio de Cali',
+  '9':  'Consejo Superior de la Judicatura',
+  '10': 'DIAN',
+  '11': 'Fiduagraria',
+  '12': 'Financiera Desarrollo Nacional',
+  '13': 'Fondo Adaptación',
+  '14': 'ICFES',
+  '15': 'Justicia Penal Militar y Policial',
+  '16': 'Metro de Medellín',
+  '17': 'MinTIC',
+  '18': 'Sanidad',
+  '19': 'Secretaría Distrital del Hábitat',
+  '20': 'Superintendencia de Servicios',
+  '21': 'Superintendencia de Sociedades',
+  '22': 'Unidad Administrativa Especial de Catastro Distrital',
+  '23': 'Universidad de Caldas',
+  '24': 'Universidad del Bosque',
+  '25': 'Instituto Geográfico Militar',
+  '26': 'Progresión'
+};
+
 // Error Messages
 const ERROR_MESSAGES = {
   INVALID_DATE_RANGE: 'El rango de fechas no es válido',
@@ -166,6 +200,7 @@ module.exports = {
   CALENDAR_TYPES,
   CALENDAR_CONFIG,
   SLA_TARGETS,
+  EMPRESA_NAMES,
   API,
   PAGINATION,
   EXCEL,

@@ -2,7 +2,10 @@ const { pool } = require('../config/database');
 const moment = require('moment');
 const workingHours = require('./workingHoursService');
 const logger = require('../utils/logger');
-const { DATABASE, STATE_GROUPS } = require('../config/constants');
+const { DATABASE, STATE_GROUPS, EMPRESA_NAMES } = require('../config/constants');
+
+// Alias local para legibilidad — definido en constants.js (DATABASE.DB_UTC_OFFSET)
+const DB_UTC_OFFSET = DATABASE.DB_UTC_OFFSET;
 
 // CONFIGURACIÓN DE SLAs (Reglas de Negocio)
 // Tiempos en HORAS laborales (se convierten a minutos en getSLATargets)
@@ -54,12 +57,12 @@ const SLA_CONFIG = {
 class SLAService {
 
   /**
-   * Helper: Obtener la hora actual en formato compatible con la DB.
-   * La DB almacena timestamps con +5h de desfase, así que sumamos 5h
-   * al tiempo real para que calculateWorkingMinutes (que resta 5h) funcione correctamente.
+   * Helper: Obtener la hora actual ajustada a Colombia (UTC-5).
+   * Todos los timestamps del sistema se normalizan a este offset para
+   * que los cálculos de horas laborales sean consistentes.
    */
   _getNowInDbFormat() {
-    return moment().add(5, 'hours').toDate();
+    return moment().utcOffset(DB_UTC_OFFSET).toDate();
   }
 
   /**
@@ -96,7 +99,10 @@ class SLAService {
 
         result.rows.forEach(h => {
           if (!historiesMap[h.o_id]) historiesMap[h.o_id] = [];
-          historiesMap[h.o_id].push(h);
+          historiesMap[h.o_id].push({
+            ...h,
+            created_at: h.created_at ? moment(h.created_at).utcOffset(DB_UTC_OFFSET).toDate() : null
+          });
         });
       }
 
@@ -133,7 +139,10 @@ class SLAService {
 
         result.rows.forEach(h => {
           if (!historiesMap[h.o_id]) historiesMap[h.o_id] = [];
-          historiesMap[h.o_id].push(h);
+          historiesMap[h.o_id].push({
+            ...h,
+            created_at: h.created_at ? moment(h.created_at).utcOffset(DB_UTC_OFFSET).toDate() : null
+          });
         });
       }
       return historiesMap;
@@ -212,8 +221,8 @@ class SLAService {
           empresa: ticket.empresa,
           state: currentState,
           owner: currentOwner,
-          start_time: moment(periodStart).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
-          end_time: moment(eventTime).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+          start_time: moment(periodStart).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
+          end_time: moment(eventTime).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
           duration_minutes: Math.round(duration),
           period_type: periodType,
           step: step++
@@ -240,8 +249,8 @@ class SLAService {
         empresa: ticket.empresa,
         state: currentState,
         owner: currentOwner,
-        start_time: moment(periodStart).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
-        end_time: moment(endTime).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+        start_time: moment(periodStart).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
+        end_time: moment(endTime).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
         duration_minutes: Math.round(finalDuration),
         period_type: isWaiting ? 'Cliente' : (isExcluded ? 'Excluido' : 'Empresa'),
         step: step
@@ -344,12 +353,18 @@ class SLAService {
     
     query += ` ORDER BY t.created_at DESC`;
 
-    console.log('🎫 [SLAService] SQL Query:', query);
-    console.log('🎫 [SLAService] SQL Params:', params);
+    logger.debug('[SLAService] getTicketsWithSLA query', { query, params });
 
     try {
       const result = await pool.query(query, params);
       console.log('🎫 [SLAService] Tickets encontrados en DB:', result.rows?.length);
+      // Normalizar timestamps de tickets a objetos Date en UTC-5
+      result.rows = result.rows.map(t => ({
+        ...t,
+        created_at: t.created_at ? moment(t.created_at).utcOffset(DB_UTC_OFFSET).toDate() : null,
+        updated_at: t.updated_at ? moment(t.updated_at).utcOffset(DB_UTC_OFFSET).toDate() : null,
+        close_at: t.close_at ? moment(t.close_at).utcOffset(DB_UTC_OFFSET).toDate() : null
+      }));
       
       // OPTIMIZACIÓN: Obtener historial de todos los tickets en una sola consulta
       const ticketIds = result.rows.map(t => t.id);
@@ -420,11 +435,11 @@ class SLAService {
       let historiesRows = preFetchedHistories;
       if (!historiesRows) {
         const res = await pool.query(`SELECT created_at, value_from, value_to FROM histories WHERE o_id = $1 AND history_attribute_id = 13 ORDER BY created_at ASC`, [ticketId]);
-        historiesRows = res.rows;
+        historiesRows = res.rows.map(r => ({ ...r, created_at: r.created_at ? moment(r.created_at).utcOffset(DB_UTC_OFFSET).toDate() : null }));
       }
 
       let totalHighTechMinutes = 0;
-      const excludedStates = ['En Espera', 'Resuelto', 'Cerrado'];
+      const excludedStates = STATE_GROUPS.HIGHTECH_EXCLUDED;
 
       if (historiesRows.length === 0) {
         // Si no hay historial de cambios, el ticket nunca cambió de estado
@@ -504,11 +519,11 @@ class SLAService {
       let historiesRows = preFetchedHistories;
       if (!historiesRows) {
         const res = await pool.query(`SELECT created_at, value_from, value_to FROM histories WHERE o_id = $1 AND history_attribute_id = 13 ORDER BY created_at ASC`, [ticketId]);
-        historiesRows = res.rows;
+        historiesRows = res.rows.map(r => ({ ...r, created_at: r.created_at ? moment(r.created_at).utcOffset(DB_UTC_OFFSET).toDate() : null }));
       }
 
       let totalWaitingMinutes = 0;
-      const waitStates = ['En Espera'];
+      const waitStates = STATE_GROUPS.CUSTOMER_WAITING;
       let waitingStart = null;
 
       // CORRECCIÓN: Verificar si el ticket nació en estado de espera (periodo inicial)
@@ -560,7 +575,7 @@ class SLAService {
       let historiesRows = preFetchedHistories;
       if (!historiesRows) {
         const res = await pool.query(`SELECT created_at FROM histories WHERE o_id = $1 AND history_attribute_id = 13 ORDER BY created_at ASC LIMIT 1`, [ticketId]);
-        historiesRows = res.rows;
+        historiesRows = res.rows.map(r => ({ ...r, created_at: r.created_at ? moment(r.created_at).utcOffset(DB_UTC_OFFSET).toDate() : null }));
       }
 
       if (historiesRows.length > 0) {
@@ -614,40 +629,13 @@ class SLAService {
   }
 
   /**
-   * Obtener nombre de empresa desde bld_cliente_padre
+   * Obtener nombre de empresa desde bld_cliente_padre.
+   * El mapa de IDs vive en config/constants.js → EMPRESA_NAMES.
+   * TODO: Mover a tabla de BD cuando el esquema lo permita.
    */
   getEmpresaNombre(bldClientePadre) {
-    const empresas = {
-      '1': 'Policía Nacional',
-      '2': 'Universidad Nacional',
-      '3': 'Coljuegos',
-      '4': 'Alcaldía de Cali',
-      '5': 'Banco Interamericano de Desarrollo',
-      '6': 'Blend360',
-      '7': 'BTG',
-      '8': 'Cámara de Comercio de Cali',
-      '9': 'Consejo Superior de la Judicatura',
-      '10': 'DIAN',
-      '11': 'Fiduagraria',
-      '12': 'Financiera Desarrollo Nacional',
-      '13': 'Fondo Adaptación',
-      '14': 'ICFES',
-      '15': 'Justicia Penal Militar y Policial',
-      '16': 'Metro de Medellín',
-      '17': 'MinTIC',
-      '18': 'Sanidad',
-      '19': 'Secretaría Distrital del Hábitat',
-      '20': 'Superintendencia de Servicios',
-      '21': 'Superintendencia de Sociedades',
-      '22': 'Unidad Administrativa Especial de Catastro Distrital',
-      '23': 'Universidad de Caldas',
-      '24': 'Universidad del Bosque',
-      '25': 'Instituto Geográfico Militar',
-      '26': 'Progresión'
-    };
-    
     if (!bldClientePadre) return 'Otro';
-    return empresas[bldClientePadre.toString()] || 'Otro';
+    return EMPRESA_NAMES[bldClientePadre.toString()] || 'Otro';
   }
 
   // Obtener métricas agregadas de SLA
@@ -723,61 +711,42 @@ class SLAService {
         (resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length).toFixed(2);
     }
     
-    // Agrupar por agente
+    // Agrupar por agente, organización y tipo en una sola pasada
+    const slaBucket = () => ({
+      total: 0, closed: 0,
+      first_response_met: 0, first_response_breached: 0,
+      resolution_met: 0, resolution_breached: 0
+    });
+
     tickets.forEach(ticket => {
+      // --- Por agente ---
       if (ticket.owner_name) {
-        if (!metrics.by_agent[ticket.owner_name]) {
-          metrics.by_agent[ticket.owner_name] = {
-            total: 0,
-            closed: 0,
-            first_response_met: 0,
-            first_response_breached: 0,
-            resolution_met: 0,
-            resolution_breached: 0
-          };
-        }
-        
-        metrics.by_agent[ticket.owner_name].total++;
-        if (ticket.close_at) metrics.by_agent[ticket.owner_name].closed++;
-        if (ticket.first_response_sla_met === true) metrics.by_agent[ticket.owner_name].first_response_met++;
-        if (ticket.first_response_sla_met === false) metrics.by_agent[ticket.owner_name].first_response_breached++;
-        if (ticket.resolution_sla_met === true) metrics.by_agent[ticket.owner_name].resolution_met++;
-        if (ticket.resolution_sla_met === false) metrics.by_agent[ticket.owner_name].resolution_breached++;
+        if (!metrics.by_agent[ticket.owner_name]) metrics.by_agent[ticket.owner_name] = slaBucket();
+        const agent = metrics.by_agent[ticket.owner_name];
+        agent.total++;
+        if (ticket.close_at)                          agent.closed++;
+        if (ticket.first_response_sla_met === true)   agent.first_response_met++;
+        if (ticket.first_response_sla_met === false)  agent.first_response_breached++;
+        if (ticket.resolution_sla_met === true)       agent.resolution_met++;
+        if (ticket.resolution_sla_met === false)      agent.resolution_breached++;
       }
-    });
-    
-    // Agrupar por organización/proyecto
-    tickets.forEach(ticket => {
+
+      // --- Por organización ---
       if (ticket.organization_name) {
-        if (!metrics.by_organization[ticket.organization_name]) {
-          metrics.by_organization[ticket.organization_name] = {
-            total: 0,
-            closed: 0,
-            first_response_met: 0,
-            first_response_breached: 0,
-            resolution_met: 0,
-            resolution_breached: 0
-          };
-        }
-        
-        metrics.by_organization[ticket.organization_name].total++;
-        if (ticket.close_at) metrics.by_organization[ticket.organization_name].closed++;
-        if (ticket.first_response_sla_met === true) metrics.by_organization[ticket.organization_name].first_response_met++;
-        if (ticket.first_response_sla_met === false) metrics.by_organization[ticket.organization_name].first_response_breached++;
-        if (ticket.resolution_sla_met === true) metrics.by_organization[ticket.organization_name].resolution_met++;
-        if (ticket.resolution_sla_met === false) metrics.by_organization[ticket.organization_name].resolution_breached++;
+        if (!metrics.by_organization[ticket.organization_name]) metrics.by_organization[ticket.organization_name] = slaBucket();
+        const org = metrics.by_organization[ticket.organization_name];
+        org.total++;
+        if (ticket.close_at)                          org.closed++;
+        if (ticket.first_response_sla_met === true)   org.first_response_met++;
+        if (ticket.first_response_sla_met === false)  org.first_response_breached++;
+        if (ticket.resolution_sla_met === true)       org.resolution_met++;
+        if (ticket.resolution_sla_met === false)      org.resolution_breached++;
       }
-    });
 
-    // Agrupar por tipo (Incidente, RFC, RFI)
-    tickets.forEach(ticket => {
-      const typeRaw = ticket.type || 'SIN_TIPO (NULL/VACÍO)';
-      
+      // --- Por tipo (Incidente, RFC, RFI) ---
       // Normalizar: minúsculas y sin acentos (para 'Petición', 'Análisis', etc.)
-      const typeLower = typeRaw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      
+      const typeLower = (ticket.type || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       let typeKey = null;
-
       if (typeLower.includes('incident') || typeLower.includes('problem') || typeLower.includes('incidencia')) {
         typeKey = 'Incidente';
       } else if (typeLower.includes('rfc') || typeLower.includes('cambio') || typeLower.includes('change')) {
@@ -785,14 +754,10 @@ class SLAService {
       } else if (typeLower.includes('rfi') || typeLower.includes('requerimiento') || typeLower.includes('peticion') || typeLower.includes('solicitud') || typeLower.includes('request') || typeLower.includes('servicio')) {
         typeKey = 'RFI';
       }
-
       if (typeKey) {
         metrics.by_type[typeKey].total++;
-        if (ticket.close_at) {
-          metrics.by_type[typeKey].closed++;
-        } else {
-          metrics.by_type[typeKey].open++;
-        }
+        if (ticket.close_at) metrics.by_type[typeKey].closed++;
+        else                 metrics.by_type[typeKey].open++;
       }
     });
     
@@ -910,11 +875,14 @@ class SLAService {
       const excludedStates = STATE_GROUPS.HIGHTECH_EXCLUDED;
       const waitStates = STATE_GROUPS.CUSTOMER_WAITING;
 
-      // Mapear eventos
-      const stateEvents = stateHistResult.rows.map(h => ({
+      // Normalizar created_at a Date (UTC-5) y mapear eventos
+      const stateRows = stateHistResult.rows.map(r => ({ ...r, created_at: r.created_at ? moment(r.created_at).utcOffset(DB_UTC_OFFSET).toDate() : null }));
+      const ownerRows = ownerHistResult.rows.map(r => ({ ...r, created_at: r.created_at ? moment(r.created_at).utcOffset(DB_UTC_OFFSET).toDate() : null }));
+
+      const stateEvents = stateRows.map(h => ({
         time: new Date(h.created_at).getTime(), type: 'state', from: h.value_from, to: h.value_to
       }));
-      const ownerEvents = ownerHistResult.rows.map(h => ({
+      const ownerEvents = ownerRows.map(h => ({
         time: new Date(h.created_at).getTime(), type: 'owner', from: h.value_from, to: h.value_to
       }));
 
@@ -957,8 +925,8 @@ class SLAService {
           from: null,
           to: currentState,
           owner: currentOwner,
-          startTime: moment(periodStart).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
-          endTime: moment(eventTime).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+          startTime: moment(periodStart).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
+          endTime: moment(eventTime).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
           durationMinutes: Math.round(duration),
           durationFormatted: workingHours.formatMinutes(duration, calendarType),
           type: periodType
@@ -986,8 +954,8 @@ class SLAService {
         from: null,
         to: currentState,
         owner: currentOwner,
-        startTime: moment(periodStart).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
-        endTime: moment(endTime).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
+        startTime: moment(periodStart).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
+        endTime: moment(endTime).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
         durationMinutes: Math.round(finalDuration),
         durationFormatted: workingHours.formatMinutes(finalDuration, calendarType),
         type: isWaitingFinal ? 'Cliente' : (isExcludedFinal ? 'Excluido' : 'Empresa'),
@@ -998,8 +966,8 @@ class SLAService {
         ticket: {
           number: ticket.number,
           title: ticket.title,
-          created: moment(ticket.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
-          closed: ticket.close_at ? moment(ticket.close_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss') : 'Abierto',
+          created: moment(ticket.created_at).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
+          closed: ticket.close_at ? moment(ticket.close_at).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss') : 'Abierto',
           currentState: ticket.current_state,
           organization: ticket.organization_name,
           empresa: this.getEmpresaNombre(ticket.bld_cliente_padre),
@@ -1032,8 +1000,8 @@ class SLAService {
       return [];
     }
 
-    const excludedStates = ['Resuelto', 'Cerrado'];
-    const waitStates = ['En Espera'];
+    const excludedStates = STATE_GROUPS.FINAL_STATES;
+    const waitStates = STATE_GROUPS.CUSTOMER_WAITING;
 
     // Procesar cada ticket para obtener duraciones por estado
     const processedTickets = await Promise.all(
@@ -1067,8 +1035,8 @@ class SLAService {
             to: initialState,
             durationMinutes: initialDuration,
             durationFormatted: workingHours.formatMinutes(initialDuration, calendarType),
-            startTime: moment(ticket.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
-            endTime: moment(firstChange.created_at).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss')
+            startTime: moment(ticket.created_at).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
+            endTime: moment(firstChange.created_at).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss')
           });
 
           // 2. Procesar cambios subsiguientes
@@ -1097,8 +1065,8 @@ class SLAService {
               to: stateAtPeriod,
               durationMinutes: duration,
               durationFormatted: workingHours.formatMinutes(duration, calendarType),
-              startTime: moment(periodStart).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss'),
-              endTime: moment(periodEnd).utcOffset(-5).format('YYYY-MM-DD HH:mm:ss')
+              startTime: moment(periodStart).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss'),
+              endTime: moment(periodEnd).utcOffset(DB_UTC_OFFSET).format('YYYY-MM-DD HH:mm:ss')
             });
           }
         }
