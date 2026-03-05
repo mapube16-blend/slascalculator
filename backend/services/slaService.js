@@ -6,6 +6,7 @@ const { DATABASE, STATE_GROUPS, EMPRESA_NAMES } = require('../config/constants')
 
 // Cache TTL para getTicketsWithSLA (5 minutos)
 const _cache = new Map();
+const _inflight = new Map(); // Deduplicación de requests simultáneos
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 function _cacheKey(filters) {
@@ -16,14 +17,31 @@ function _cacheKey(filters) {
 }
 
 function _cacheGet(filters) {
-  const entry = _cache.get(_cacheKey(filters));
+  const key = _cacheKey(filters);
+  const entry = _cache.get(key);
   if (!entry) return null;
-  if (Date.now() > entry.expiresAt) { _cache.delete(_cacheKey(filters)); return null; }
+  if (Date.now() > entry.expiresAt) { _cache.delete(key); return null; }
   return entry.data;
 }
 
 function _cacheSet(filters, data) {
   _cache.set(_cacheKey(filters), { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+// Si ya hay una request con los mismos filtros en vuelo, reutilizar su Promise
+function _getOrCompute(filters, computeFn) {
+  const cached = _cacheGet(filters);
+  if (cached) return Promise.resolve(cached);
+
+  const key = _cacheKey(filters);
+  if (_inflight.has(key)) return _inflight.get(key);
+
+  const promise = computeFn()
+    .then(data => { _cacheSet(filters, data); _inflight.delete(key); return data; })
+    .catch(err => { _inflight.delete(key); throw err; });
+
+  _inflight.set(key, promise);
+  return promise;
 }
 
 // Alias local para legibilidad — definido en constants.js (DATABASE.DB_UTC_OFFSET)
@@ -283,10 +301,11 @@ class SLAService {
   }
 
   // Obtener todos los tickets con información completa desde tabla tickets
-  async getTicketsWithSLA(filters = {}) {
-    const cached = _cacheGet(filters);
-    if (cached) { logger.debug('[SLAService] getTicketsWithSLA (cache hit)'); return cached; }
+  getTicketsWithSLA(filters = {}) {
+    return _getOrCompute(filters, () => this._computeTicketsWithSLA(filters));
+  }
 
+  async _computeTicketsWithSLA(filters = {}) {
     const { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType = 'laboral', type } = filters;
     logger.debug('[SLAService] getTicketsWithSLA', { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType, type });
 
@@ -433,10 +452,9 @@ class SLAService {
         })
       );
       
-      _cacheSet(filters, processedTickets);
       return processedTickets;
     } catch (error) {
-      logger.error('Error en getTicketsWithSLA', error, { filters });
+      logger.error('Error en _computeTicketsWithSLA', error, { filters });
       throw error;
     }
   }
