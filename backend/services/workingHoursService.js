@@ -113,8 +113,8 @@ calculateWorkingMinutes(startDate, endDate, calendarType = 'laboral') {
     // 1. Tomamos la fecha
     // 2. Restamos 5 horas para corregir el error de guardado de la DB
     // 3. Aplicamos utcOffset(-5) para ponerlo en hora colombiana
-    const start = moment(startDate).subtract(5, 'hours').utcOffset(-5);
-    const end = moment(endDate).subtract(5, 'hours').utcOffset(-5);
+    const start = moment(startDate).utcOffset(-5);
+    const end = moment(endDate).utcOffset(-5);
 
     if (end.isBefore(start)) {
       return 0;

@@ -66,31 +66,14 @@ async function uploadFileToS3(localPath, tableName, timestamp) {
 
 async function exportSLAToQuickSight() {
   const startTime = Date.now();
-
   try {
-    console.log('\n==============================================');
-    console.log('CRON: SLA export to Parquet');
-    console.log(`Timestamp: ${new Date().toISOString()}`);
-    console.log('==============================================\n');
+    // 1) Fetch data
+    console.log('1) Fetching data from SLAService...');
+    const tickets = await SLAService.getTicketsWithSLA();
+    console.log(`   ${tickets.length} tickets found\n`);
 
-    // 1) Extract data
-    console.log('1) Extracting data...');
-    const [tickets, metrics] = await Promise.all([
-      SLAService.getTicketsWithSLA({ calendarType: 'laboral' }),
-      SLAService.getSLAMetrics({ calendarType: 'laboral' })
-    ]);
-
-    console.log(`   Tickets: ${tickets.length}`);
-    console.log(`   FR compliance: ${metrics.first_response.compliance_rate}%`);
-    console.log(`   Resolution compliance: ${metrics.resolution.compliance_rate}%\n`);
-
-    // 2) Build timelines
-    console.log('2) Building timelines...');
-    const ticketTimeline = await SLAService.buildTicketTimelines(tickets, 'laboral');
-    console.log(`   Timeline rows: ${ticketTimeline.length}\n`);
-
-    // 3) Transform data
-    console.log('3) Transforming data...');
+    // 2) Transform data (tickets)
+    console.log('2) Transforming data (tickets)...');
     const flatTickets = tickets.map(t => ({
       ticket_id: t.id,
       ticket_number: t.ticket_number,
@@ -124,84 +107,20 @@ async function exportSLAToQuickSight() {
       day_of_week: moment(t.created_at).format('dddd'),
       is_closed: !!t.close_at
     }));
+    console.log('   Data transformed (tickets)\n');
 
-    const summary = {
-      total_tickets: metrics.total_tickets,
-      closed_tickets: metrics.closed_tickets,
-      open_tickets: metrics.open_tickets,
-      first_response_met: metrics.first_response.met,
-      first_response_breached: metrics.first_response.breached,
-      first_response_compliance_rate: parseFloat(metrics.first_response.compliance_rate),
-      first_response_avg_minutes: parseFloat(metrics.first_response.avg_time_minutes),
-      resolution_met: metrics.resolution.met,
-      resolution_breached: metrics.resolution.breached,
-      resolution_compliance_rate: parseFloat(metrics.resolution.compliance_rate),
-      resolution_avg_minutes: parseFloat(metrics.resolution.avg_time_minutes)
-    };
+    // 2b) Transform data (ticket_timelines)
+    console.log('2b) Generating ticket timelines...');
+    const timelines = await SLAService.buildTicketTimelines(tickets);
+    console.log(`   ${timelines.length} timeline rows generated\n`);
 
-    const byAgent = Object.entries(metrics.by_agent).map(([name, data]) => ({
-      agent_name: name,
-      total_tickets: data.total,
-      closed_tickets: data.closed,
-      first_response_met: data.first_response_met,
-      first_response_breached: data.first_response_breached,
-      resolution_met: data.resolution_met,
-      resolution_breached: data.resolution_breached,
-      first_response_compliance_rate: data.total > 0
-        ? parseFloat(((data.first_response_met / data.total) * 100).toFixed(2))
-        : 0,
-      resolution_compliance_rate: data.total > 0
-        ? parseFloat(((data.resolution_met / data.total) * 100).toFixed(2))
-        : 0
-    }));
-
-    const byOrganization = Object.entries(metrics.by_organization).map(([name, data]) => ({
-      organization_name: name,
-      total_tickets: data.total,
-      closed_tickets: data.closed,
-      first_response_met: data.first_response_met,
-      first_response_breached: data.first_response_breached,
-      resolution_met: data.resolution_met,
-      resolution_breached: data.resolution_breached,
-      first_response_compliance_rate: data.total > 0
-        ? parseFloat(((data.first_response_met / data.total) * 100).toFixed(2))
-        : 0,
-      resolution_compliance_rate: data.total > 0
-        ? parseFloat(((data.resolution_met / data.total) * 100).toFixed(2))
-        : 0
-    }));
-
-    const byType = Object.entries(metrics.by_type).map(([name, data]) => ({
-      type_name: name,
-      total_tickets: data.total,
-      closed_tickets: data.closed,
-      open_tickets: data.open
-    }));
-
-    const metadata = [{
-      exported_at: new Date().toISOString(),
-      calendar_type: 'laboral',
-      total_records: flatTickets.length,
-      version: '1.0'
-    }];
-
-    console.log('   Data transformed\n');
-
-    // 4) Write Parquet files
-    console.log('4) Writing Parquet files...');
+    // 3) Write Parquet files
+    console.log('3) Writing Parquet files...');
     const timestamp = moment().format('YYYY-MM-DD_HH-mm-ss');
     const dateFolder = moment().format('YYYY/MM/DD');
     const baseDir = path.join(__dirname, '../../exports/sla-data', dateFolder);
-
-    const fileMap = {
-      tickets: path.join(baseDir, `tickets_${timestamp}.parquet`),
-      ticket_timeline: path.join(baseDir, `ticket_timeline_${timestamp}.parquet`),
-      summary: path.join(baseDir, `summary_${timestamp}.parquet`),
-      by_agent: path.join(baseDir, `by_agent_${timestamp}.parquet`),
-      by_organization: path.join(baseDir, `by_organization_${timestamp}.parquet`),
-      by_type: path.join(baseDir, `by_type_${timestamp}.parquet`),
-      metadata: path.join(baseDir, `metadata_${timestamp}.parquet`)
-    };
+    const ticketsPath = path.join(baseDir, `tickets_${timestamp}.parquet`);
+    const timelinesPath = path.join(baseDir, `ticket_timelines_${timestamp}.parquet`);
 
     const ticketsSchema = new parquet.ParquetSchema({
       ticket_id: { type: 'INT64' },
@@ -236,9 +155,12 @@ async function exportSLAToQuickSight() {
       day_of_week: { type: 'UTF8', optional: true },
       is_closed: { type: 'BOOLEAN', optional: true }
     });
+    await writeParquetFile(ticketsSchema, flatTickets, ticketsPath);
+    console.log('   Parquet file (tickets) saved locally');
 
-    const timelineSchema = new parquet.ParquetSchema({
-      ticket_number: { type: 'UTF8', optional: true },
+    // ticket_timelines schema
+    const timelinesSchema = new parquet.ParquetSchema({
+      ticket_number: { type: 'UTF8' },
       title: { type: 'UTF8', optional: true },
       organization: { type: 'UTF8', optional: true },
       empresa: { type: 'UTF8', optional: true },
@@ -246,98 +168,92 @@ async function exportSLAToQuickSight() {
       owner: { type: 'UTF8', optional: true },
       start_time: { type: 'UTF8', optional: true },
       end_time: { type: 'UTF8', optional: true },
-      duration_minutes: { type: 'INT32', optional: true },
+      duration_minutes: { type: 'DOUBLE', optional: true },
       period_type: { type: 'UTF8', optional: true },
       step: { type: 'INT32', optional: true }
     });
+    await writeParquetFile(timelinesSchema, timelines, timelinesPath);
+    console.log('   Parquet file (ticket_timelines) saved locally');
 
-    const summarySchema = new parquet.ParquetSchema({
-      total_tickets: { type: 'INT32' },
-      closed_tickets: { type: 'INT32' },
-      open_tickets: { type: 'INT32' },
-      first_response_met: { type: 'INT32' },
-      first_response_breached: { type: 'INT32' },
-      first_response_compliance_rate: { type: 'DOUBLE' },
-      first_response_avg_minutes: { type: 'DOUBLE' },
-      resolution_met: { type: 'INT32' },
-      resolution_breached: { type: 'INT32' },
-      resolution_compliance_rate: { type: 'DOUBLE' },
-      resolution_avg_minutes: { type: 'DOUBLE' }
+    // 3b) Build consolidated tickets_full (timeline rows + ticket metadata)
+    console.log('3b) Building consolidated tickets_full...');
+    const ticketsByNumber = new Map(tickets.map(t => [String(t.ticket_number), t]));
+    const ticketsFull = timelines.map(row => {
+      const t = ticketsByNumber.get(String(row.ticket_number)) || {};
+      return {
+        ticket_id: t.id || null,
+        ticket_number: row.ticket_number,
+        title: row.title || t.title || null,
+        type: t.type || null,
+        state: row.state || null,
+        priority: t.priority_name || null,
+        organization: row.organization || t.organization_name || null,
+        empresa: row.empresa || t.empresa || null,
+        owner: row.owner || t.owner_name || null,
+        customer: t.customer_name || null,
+        created_at: t.created_at || null,
+        updated_at: t.updated_at || null,
+        close_at: t.close_at || null,
+        fase: t.bld_ticket_fase || null,
+        responsable: t.bld_responsable || null,
+        prioridad_cliente: t.bld_prority_customer || null,
+        start_time: row.start_time || null,
+        end_time: row.end_time || null,
+        duration_minutes: row.duration_minutes || null,
+        period_type: row.period_type || null,
+        step: row.step || null,
+        sla_first_response_target_minutes: t.sla_config ? t.sla_config.firstResponse : null,
+        sla_resolution_target_minutes: t.sla_config ? t.sla_config.resolution : null,
+        first_response_sla_met: t.first_response_sla_met === undefined ? null : t.first_response_sla_met,
+        resolution_sla_met: t.resolution_sla_met === undefined ? null : t.resolution_sla_met
+      };
     });
 
-    const byAgentSchema = new parquet.ParquetSchema({
-      agent_name: { type: 'UTF8', optional: true },
-      total_tickets: { type: 'INT32' },
-      closed_tickets: { type: 'INT32' },
-      first_response_met: { type: 'INT32' },
-      first_response_breached: { type: 'INT32' },
-      resolution_met: { type: 'INT32' },
-      resolution_breached: { type: 'INT32' },
-      first_response_compliance_rate: { type: 'DOUBLE' },
-      resolution_compliance_rate: { type: 'DOUBLE' }
+    const ticketsFullPath = path.join(baseDir, `tickets_full_${timestamp}.parquet`);
+    const ticketsFullSchema = new parquet.ParquetSchema({
+      ticket_id: { type: 'INT64', optional: true },
+      ticket_number: { type: 'UTF8' },
+      title: { type: 'UTF8', optional: true },
+      type: { type: 'UTF8', optional: true },
+      state: { type: 'UTF8', optional: true },
+      priority: { type: 'UTF8', optional: true },
+      organization: { type: 'UTF8', optional: true },
+      empresa: { type: 'UTF8', optional: true },
+      owner: { type: 'UTF8', optional: true },
+      customer: { type: 'UTF8', optional: true },
+      created_at: { type: 'UTF8', optional: true },
+      updated_at: { type: 'UTF8', optional: true },
+      close_at: { type: 'UTF8', optional: true },
+      fase: { type: 'UTF8', optional: true },
+      responsable: { type: 'UTF8', optional: true },
+      prioridad_cliente: { type: 'UTF8', optional: true },
+      start_time: { type: 'UTF8', optional: true },
+      end_time: { type: 'UTF8', optional: true },
+      duration_minutes: { type: 'DOUBLE', optional: true },
+      period_type: { type: 'UTF8', optional: true },
+      step: { type: 'INT32', optional: true },
+      sla_first_response_target_minutes: { type: 'INT32', optional: true },
+      sla_resolution_target_minutes: { type: 'INT32', optional: true },
+      first_response_sla_met: { type: 'BOOLEAN', optional: true },
+      resolution_sla_met: { type: 'BOOLEAN', optional: true }
     });
 
-    const byOrganizationSchema = new parquet.ParquetSchema({
-      organization_name: { type: 'UTF8', optional: true },
-      total_tickets: { type: 'INT32' },
-      closed_tickets: { type: 'INT32' },
-      first_response_met: { type: 'INT32' },
-      first_response_breached: { type: 'INT32' },
-      resolution_met: { type: 'INT32' },
-      resolution_breached: { type: 'INT32' },
-      first_response_compliance_rate: { type: 'DOUBLE' },
-      resolution_compliance_rate: { type: 'DOUBLE' }
-    });
+    await writeParquetFile(ticketsFullSchema, ticketsFull, ticketsFullPath);
+    console.log('   Parquet file (tickets_full) saved locally');
 
-    const byTypeSchema = new parquet.ParquetSchema({
-      type_name: { type: 'UTF8', optional: true },
-      total_tickets: { type: 'INT32' },
-      closed_tickets: { type: 'INT32' },
-      open_tickets: { type: 'INT32' }
-    });
-
-    const metadataSchema = new parquet.ParquetSchema({
-      exported_at: { type: 'UTF8' },
-      calendar_type: { type: 'UTF8' },
-      total_records: { type: 'INT32' },
-      version: { type: 'UTF8' }
-    });
-
-    await writeParquetFile(ticketsSchema, flatTickets, fileMap.tickets);
-    await writeParquetFile(timelineSchema, ticketTimeline, fileMap.ticket_timeline);
-    await writeParquetFile(summarySchema, [summary], fileMap.summary);
-    await writeParquetFile(byAgentSchema, byAgent, fileMap.by_agent);
-    await writeParquetFile(byOrganizationSchema, byOrganization, fileMap.by_organization);
-    await writeParquetFile(byTypeSchema, byType, fileMap.by_type);
-    await writeParquetFile(metadataSchema, metadata, fileMap.metadata);
-
-    console.log('   Parquet files saved locally');
-
-    // 5) Upload to S3 with Glue-compatible structure
-    //    Latest:  s3://bucket/sla-data/<table>/data.parquet  ← Glue Crawler reads this
-    //    History: s3://bucket/sla-data-history/<table>/year=YYYY/month=MM/day=DD/data.parquet
+    // 4) Upload to S3 with Glue-compatible structure
     let s3Locations = {};
     if (s3 && process.env.AWS_S3_BUCKET) {
-      console.log('5) Uploading to S3 (Glue-compatible structure)...');
+      console.log('4) Uploading to S3 (Glue-compatible structure)...');
+      s3Locations['tickets'] = await uploadFileToS3(ticketsPath, 'tickets', timestamp);
+      s3Locations['ticket_timelines'] = await uploadFileToS3(timelinesPath, 'ticket_timelines', timestamp);
+      // Upload consolidated table
+      s3Locations['tickets_full'] = await uploadFileToS3(ticketsFullPath, 'tickets_full', timestamp);
+      console.log(`   ✓ tickets → ${s3Locations['tickets'].latest}`);
+      console.log(`   ✓ ticket_timelines → ${s3Locations['ticket_timelines'].latest}`);
+      console.log('   Files uploaded to S3\n');
 
-      const tables = [
-        { name: 'tickets', localPath: fileMap.tickets },
-        { name: 'ticket_timeline', localPath: fileMap.ticket_timeline },
-        { name: 'summary', localPath: fileMap.summary },
-        { name: 'by_agent', localPath: fileMap.by_agent },
-        { name: 'by_organization', localPath: fileMap.by_organization },
-        { name: 'by_type', localPath: fileMap.by_type },
-        { name: 'metadata', localPath: fileMap.metadata }
-      ];
-
-      for (const table of tables) {
-        s3Locations[table.name] = await uploadFileToS3(table.localPath, table.name, timestamp);
-        console.log(`   ✓ ${table.name} → ${s3Locations[table.name].latest}`);
-      }
-
-      console.log('   All files uploaded to S3\n');
-
-      // 6) Trigger Glue Crawler to update Data Catalog (optional)
+      // 5) Trigger Glue Crawler to update Data Catalog (optional)
       if (process.env.AWS_GLUE_CRAWLER_NAME) {
         try {
           const glue = new AWS.Glue({ region: process.env.AWS_REGION || 'us-east-1' });
@@ -352,7 +268,7 @@ async function exportSLAToQuickSight() {
         }
       }
     } else {
-      console.log('5) S3 upload skipped (AWS_S3_BUCKET not configured)\n');
+      console.log('4) S3 upload skipped (AWS_S3_BUCKET not configured)\n');
     }
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);

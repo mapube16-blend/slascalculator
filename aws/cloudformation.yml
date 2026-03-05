@@ -179,19 +179,13 @@ Resources:
     Properties:
       Name: !Sub '${ProjectName}-crawler-latest-${Environment}'
       Description: >
-        Crawl latest SLA Parquet snapshots to update Glue Data Catalog.
+        Crawl latest SLA Parquet snapshot (tickets) to update Glue Data Catalog.
         Triggered daily after CRON export.
       Role: !GetAtt GlueCrawlerRole.Arn
       DatabaseName: !Ref GlueDatabaseName
       Targets:
         S3Targets:
           - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/tickets/'
-          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/ticket_timeline/'
-          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/summary/'
-          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/by_agent/'
-          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/by_organization/'
-          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/by_type/'
-          - Path: !Sub 's3://${SLADataBucket}/${S3DataPrefix}/metadata/'
       Schedule:
         ScheduleExpression: !Ref CrawlerSchedule
       SchemaChangePolicy:
@@ -281,5 +275,5 @@ Outputs:
     Description: Info para conectar QuickSight
     Value: !Sub >
       Glue Database: ${GlueDatabaseName}
-      Tables: tickets, ticket_timeline, summary, by_agent, by_organization, by_type, metadata
+      Table: tickets
       Region: ${AWS::Region}
