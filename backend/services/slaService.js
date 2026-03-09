@@ -3,6 +3,7 @@ const moment = require('moment');
 const workingHours = require('./workingHoursService');
 const logger = require('../utils/logger');
 const { DATABASE, STATE_GROUPS, EMPRESA_NAMES } = require('../config/constants');
+const dynamoService = require('./dynamoService');
 
 // Cache TTL para getTicketsWithSLA (5 minutos)
 const _cache = new Map();
@@ -398,6 +399,18 @@ class SLAService {
 
     logger.debug('[SLAService] getTicketsWithSLA query', { query, params });
 
+    // Precargar maps de DynamoDB una sola vez para todos los tickets
+    let projectsMap = {};
+    let agentTeamMap = {};
+    try {
+      [projectsMap, agentTeamMap] = await Promise.all([
+        dynamoService.getProjectsMap(),
+        dynamoService.getAgentTeamMap()
+      ]);
+    } catch (e) {
+      logger.error('[SLAService] No se pudo cargar DynamoDB, usando fallback de constants', e);
+    }
+
     try {
       const result = await pool.query(query, params);
       logger.debug('[SLAService] Tickets encontrados en DB', { count: result.rows?.length });
@@ -408,7 +421,7 @@ class SLAService {
         updated_at: t.updated_at ? moment(t.updated_at).utcOffset(DB_UTC_OFFSET).toDate() : null,
         close_at: t.close_at ? moment(t.close_at).utcOffset(DB_UTC_OFFSET).toDate() : null
       }));
-      
+
       // OPTIMIZACIÓN: Obtener historial de todos los tickets en una sola consulta
       const ticketIds = result.rows.map(t => t.id);
       const historiesMap = await this._getTicketHistories(ticketIds);
@@ -420,19 +433,24 @@ class SLAService {
 
           // Calcular Tiempo Hightech: excluir Espera, Resuelto, Cerrado
           const highTechMinutes = await this.calculateHighTechTime(ticket.id, ticket.created_at, ticket.close_at || this._getNowInDbFormat(), calendarType, ticketHistories, ticket.state_name);
-          
+
           // Calcular Tiempo Cliente: solo cuando está en "Espera"
           const clientMinutes = await this.calculateClientWaitingTime(ticket.id, calendarType, ticketHistories, ticket.created_at);
 
           // Calcular Tiempo Primera Respuesta
           const firstResponseMinutes = await this.calculateFirstResponseTime(ticket.id, ticket.created_at, calendarType, ticketHistories);
 
-          // EVALUAR SLA
-          const slaTargets = this.getSLATargets(ticket.type, ticket.priority_name);
-          
+          // EVALUAR SLA — usar targets del proyecto si existen, si no usar global
+          const projectConfig = projectsMap[ticket.bld_cliente_padre?.toString()];
+          const slaTargets = this.getSLATargets(ticket.type, ticket.priority_name, projectConfig);
+
           const firstResponseMet = firstResponseMinutes <= slaTargets.firstResponse;
           const resolutionMet = highTechMinutes <= slaTargets.resolution;
-          
+
+          // Lookup empresa y equipo del agente desde DynamoDB (O(1))
+          const empresa = projectConfig?.empresa || this.getEmpresaNombre(ticket.bld_cliente_padre);
+          const team = agentTeamMap[ticket.owner_id] || null;
+
           return {
             ...ticket,
             hightech_time_minutes: highTechMinutes,
@@ -440,18 +458,20 @@ class SLAService {
             first_response_time_minutes: firstResponseMinutes,
             hightech_time_formatted: workingHours.formatMinutes(highTechMinutes, calendarType),
             client_time_formatted: workingHours.formatMinutes(clientMinutes, calendarType),
-            
+
             // Resultados de SLA
             sla_config: slaTargets,
             first_response_sla_met: firstResponseMet,
             resolution_sla_met: resolutionMet,
-            
-            empresa: this.getEmpresaNombre(ticket.bld_cliente_padre),
+
+            empresa,
+            team_id: team?.id || null,
+            team_name: team?.name || null,
             raw_history: ticketHistories // OPTIMIZACIÓN: Devolver historial para reutilizar
           };
         })
       );
-      
+
       return processedTickets;
     } catch (error) {
       logger.error('Error en _computeTicketsWithSLA', error, { filters });
@@ -638,33 +658,33 @@ class SLAService {
   }
 
   /**
-   * Obtener objetivos de SLA según Tipo y Prioridad
+   * Obtener objetivos de SLA según Tipo y Prioridad.
+   * Si el proyecto tiene sla_targets personalizados en DynamoDB, los usa.
+   * @param {string} type
+   * @param {string} priority
+   * @param {Object|null} projectConfig - Proyecto desde DynamoDB (puede tener sla_targets)
    */
-  getSLATargets(type, priority) {
+  getSLATargets(type, priority, projectConfig = null) {
     const typeKey = (type || '').toLowerCase();
     const priorityKey = (priority || '').toLowerCase();
-    
+
+    // Usar targets del proyecto si están definidos
+    const source = (projectConfig?.sla_targets) || SLA_CONFIG;
+
     let config = null;
 
-    // Intentar coincidencia exacta
-    if (SLA_CONFIG[typeKey] && SLA_CONFIG[typeKey][priorityKey]) {
-      config = SLA_CONFIG[typeKey][priorityKey];
-    }
-    // Intentar coincidencia parcial en prioridad (ej: "2 media" vs "media")
-    else if (SLA_CONFIG[typeKey]) {
-      const priorities = Object.keys(SLA_CONFIG[typeKey]);
+    if (source[typeKey] && source[typeKey][priorityKey]) {
+      config = source[typeKey][priorityKey];
+    } else if (source[typeKey]) {
+      // Coincidencia parcial en prioridad (ej: "2 media" vs "media")
+      const priorities = Object.keys(source[typeKey]);
       const match = priorities.find(p => priorityKey.includes(p) || p.includes(priorityKey));
-      if (match) {
-        config = SLA_CONFIG[typeKey][match];
-      }
+      if (match) config = source[typeKey][match];
     }
 
-    // Si no hay coincidencia, usar default
-    if (!config) {
-      config = SLA_CONFIG['default'];
-    }
-    
-    // Convertir horas a minutos para el cálculo interno
+    // Si no hay coincidencia, usar default (del proyecto o global)
+    if (!config) config = source['default'] || SLA_CONFIG['default'];
+
     return {
       firstResponse: config.firstResponse * 60,
       resolution: config.resolution * 60
@@ -721,7 +741,10 @@ class SLAService {
         'Incidente': { total: 0, closed: 0, open: 0 },
         'RFC': { total: 0, closed: 0, open: 0 },
         'RFI': { total: 0, closed: 0, open: 0 }
-      }
+      },
+
+      // Métricas por equipo (desde DynamoDB teams)
+      by_team: {}
     };
     
     // Calcular tasas de cumplimiento
@@ -772,6 +795,18 @@ class SLAService {
         if (ticket.first_response_sla_met === false)  agent.first_response_breached++;
         if (ticket.resolution_sla_met === true)       agent.resolution_met++;
         if (ticket.resolution_sla_met === false)      agent.resolution_breached++;
+      }
+
+      // --- Por equipo ---
+      if (ticket.team_name) {
+        if (!metrics.by_team[ticket.team_name]) metrics.by_team[ticket.team_name] = slaBucket();
+        const team = metrics.by_team[ticket.team_name];
+        team.total++;
+        if (ticket.close_at)                          team.closed++;
+        if (ticket.first_response_sla_met === true)   team.first_response_met++;
+        if (ticket.first_response_sla_met === false)  team.first_response_breached++;
+        if (ticket.resolution_sla_met === true)       team.resolution_met++;
+        if (ticket.resolution_sla_met === false)      team.resolution_breached++;
       }
 
       // --- Por organización ---

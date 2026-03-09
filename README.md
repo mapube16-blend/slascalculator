@@ -20,8 +20,8 @@ zammad-sla-reporter/
 │   ├── services/             # Lógica de negocio (SLA, Excel, exportación)
 │   ├── cron/                 # Jobs programados (exportación a S3/QuickSight)
 │   ├── middleware/           # Middleware Express
-│   ├── utils/                # Utilidades
-│   └── config/               # Base de datos, constantes (UTC offset, estados)
+│   ├── utils/                # Utilidades (logger)
+│   └── config/               # Base de datos, constantes (UTC offset, estados, SLA targets)
 ├── frontend/                 # App React (Vite)
 │   ├── src/                  # Código fuente React
 │   │   ├── components/       # Componentes UI reutilizables y de negocio
@@ -63,10 +63,10 @@ npm run dev
 
 | Componente | Servicio | Detalle |
 |---|---|---|
-| Backend + Frontend | EC2 (Docker) | `10.67.4.151` (IP privada, requiere VPN) |
+| Backend + Frontend | EC2 (Node.js directo) | `10.67.4.151` (IP privada, requiere VPN) |
 | Base de datos | RDS PostgreSQL | Base de datos de Zammad (solo lectura) |
 | Registro de imágenes | GitHub Container Registry (GHCR) | `ghcr.io/mapube16/zammad-sla-reporter-backend` |
-| Puerto | 3000 | Expuesto por Docker Compose |
+| Puerto | 443 | Expuesto directamente por Node.js (`sudo setcap` para bind sin root) |
 
 ### CI/CD automático
 
@@ -74,11 +74,14 @@ El proyecto usa GitHub Actions para despliegue continuo. Cada push a `main`:
 
 1. **Build**: Construye la imagen Docker (multi-stage: compila el frontend React con Vite, luego monta el backend Node.js con el `dist/` incluido).
 2. **Push**: Sube la imagen a GitHub Container Registry (GHCR).
-3. **Deploy**: Se conecta a la EC2 por SSH, hace `docker compose pull` y `docker compose up -d`.
+3. **Deploy**: Intenta conectarse a la EC2 por SSH — **este paso falla** porque la EC2 está en red privada (`10.67.4.151`) sin acceso desde internet. El deploy siempre se hace manualmente (ver abajo).
 
 ```
-git push origin main  →  GitHub Actions  →  GHCR  →  EC2 (docker compose)
+git push origin main  →  GitHub Actions  →  GHCR  ✓
+                                          →  SSH deploy a EC2  ✗ (IP privada, sin acceso desde internet)
 ```
+
+> **Importante:** Solo los pasos de Build y Push funcionan automáticamente. El deploy en EC2 siempre requiere intervención manual.
 
 **Secrets requeridos en el repositorio GitHub** (`Settings → Secrets and variables → Actions`):
 
@@ -92,47 +95,69 @@ git push origin main  →  GitHub Actions  →  GHCR  →  EC2 (docker compose)
 
 ### Desplegar cambios
 
+**Paso 1 — Push (automático via CI):**
 ```bash
-# Solo hacer push — el pipeline se encarga del resto
 git add .
 git commit -m "descripcion del cambio"
 git push origin main
 ```
 
-El pipeline puede verse en `Actions` del repositorio GitHub.
+El pipeline de GitHub Actions construye y sube la imagen a GHCR automáticamente. El pipeline puede verse en `Actions` del repositorio GitHub.
 
-### Acceder al servidor (solo para diagnóstico)
+**Paso 2 — Deploy manual en EC2:**
 
 ```bash
+# 1. Conectarse a la EC2 (requiere VPN activa)
 ssh -i "nuv-prod-ai-servicecenter-informespk 1.pem" ec2-user@10.67.4.151
+
+# 2. Ir al directorio del proyecto y traer cambios
+cd /home/ec2-user/slascalculator
+git pull origin main
+
+# 3. Instalar dependencias (si hay cambios en package.json)
+cd backend && npm install && cd ..
+
+# 4. Reiniciar el servidor
+pkill -f "node server.js"
+cd backend
+nohup node server.js > /home/ec2-user/app.log 2>&1 &
+
+# 5. Verificar que levantó correctamente
+tail -f /home/ec2-user/app.log
 ```
 
-Una vez conectado:
+**Comandos útiles en producción:**
+
 ```bash
-# Ver logs del contenedor en tiempo real
-docker logs -f zammad-sla-reporter
+# Ver logs en tiempo real
+tail -f /home/ec2-user/app.log
 
-# Ver estado del contenedor
-docker compose ps
+# Verificar que el proceso está corriendo
+ps aux | grep "node server.js"
 
-# Reiniciar manualmente (solo si es necesario)
-docker compose restart
+# Ver qué proceso escucha en el puerto 443
+sudo lsof -i :443
+
+# Habilitar binding al puerto 443 sin root (hacer una sola vez si cambia el binario de node)
+sudo setcap 'cap_net_bind_service=+ep' $(which node)
 ```
+
+> **Nota:** El servidor corre directamente con Node.js (`nohup node server.js`), no con Docker. El `PORT=443` está configurado en `backend/.env`.
 
 ### URL de la aplicación
 
 ```
-http://10.67.4.151:3000
+http://10.67.4.151
 ```
-Requiere VPN corporativa activa.
+Requiere VPN corporativa activa (puerto 443, no es necesario especificarlo en la URL).
 
 ## Calendarios SLA soportados
 
-| Tipo | Horario | Días | Festivos Colombia |
-|---|---|---|---|
-| `laboral` | 8:00 AM – 5:00 PM | Lunes a Viernes | Excluidos |
-| `extended` | 8:00 AM – 10:00 PM | Lunes a Domingo | No excluidos |
-| `24-7` | 24 horas | Todos los días | No excluidos |
+| Tipo | Horario | Horas/día | Días | Festivos Colombia |
+|---|---|---|---|---|
+| `laboral` | 8:00–17:00 | 9 h | Lunes a Viernes | Excluidos |
+| `continuo` | 8:00–18:00 | 10 h | Lunes a Viernes | No excluidos |
+| `24x7` | 00:00–24:00 | 24 h | Todos los días | No excluidos |
 
 ## API — Endpoint principal
 
@@ -298,10 +323,10 @@ node -e "require('./cron/sla-exporter-cron').exportSLAToQuickSight().then(consol
 | `DB_NAME` | Nombre de la base de datos | `postgres` |
 | `DB_USER` | Usuario de la base de datos | `cloud` |
 | `DB_PASSWORD` | Contraseña de la base de datos | `****` |
-| `PORT` | Puerto del servidor | `3000` |
-| `TIMEZONE` | Zona horaria | `America/Bogota` |
-| `CORS_ORIGIN` | Dominios permitidos para CORS | `*` |
-| `SERVE_FRONTEND` | Servir frontend desde Express | `true` |
+| `PORT` | Puerto del servidor | `443` (producción) / `3000` (desarrollo local) |
+| `TIMEZONE` | Zona horaria del servidor | `America/Bogota` |
+| `CORS_ORIGIN` | Dominios permitidos para CORS (separar con coma) | `*` |
+| `SERVE_FRONTEND` | Servir frontend desde Express (`false` si está en S3) | `true` |
 | `AWS_S3_BUCKET` | Bucket S3 para Parquet (pipeline) | `zammad-sla-reporter-prod-123456` |
 | `AWS_S3_PREFIX` | Prefijo S3 de los datos | `sla-data` |
 | `AWS_REGION` | Región AWS | `us-east-1` |

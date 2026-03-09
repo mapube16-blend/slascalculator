@@ -6,6 +6,7 @@ require('dotenv').config();
 
 const { testConnection } = require('./config/database');
 const apiRoutes = require('./routes/api');
+const adminRoutes = require('./routes/admin');
 const { API } = require('./config/constants');
 const { initializeCronJobs } = require('./cron/cron-scheduler');
 
@@ -61,6 +62,7 @@ app.use('/api', async (req, res, next) => {
 
 // Rutas de API
 app.use('/api', apiRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Servir frontend React en producción (desactivar si el frontend está en S3)
 if (process.env.SERVE_FRONTEND !== 'false') {
