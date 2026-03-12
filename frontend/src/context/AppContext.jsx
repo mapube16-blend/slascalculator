@@ -1,12 +1,9 @@
-import { createContext, useContext, useReducer, useEffect } from 'react';
+import { createContext, useContext, useReducer } from 'react';
 
 const AppContext = createContext();
 
 // Estado inicial
 const initialState = {
-  // Configuración
-  selectedCalendarType: 'laboral', // 'laboral', 'continuo', '24x7'
-
   // Datos
   currentMetrics: null,
   tickets: [],
@@ -56,13 +53,6 @@ const initialState = {
 // Reducer para manejar acciones
 function appReducer(state, action) {
   switch (action.type) {
-    // ==================== CALENDARIO ====================
-    case 'SET_CALENDAR_TYPE':
-      return {
-        ...state,
-        selectedCalendarType: action.payload
-      };
-
     // ==================== DATOS ====================
     case 'SET_METRICS':
       return {
@@ -230,22 +220,6 @@ function appReducer(state, action) {
 // Provider Component
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
-
-  // Cargar estado inicial desde localStorage
-  useEffect(() => {
-    const savedCalendarType = localStorage.getItem('selectedCalendarType');
-    if (savedCalendarType) {
-      dispatch({
-        type: 'SET_CALENDAR_TYPE',
-        payload: savedCalendarType
-      });
-    }
-  }, []);
-
-  // Guardar calendario seleccionado en localStorage
-  useEffect(() => {
-    localStorage.setItem('selectedCalendarType', state.selectedCalendarType);
-  }, [state.selectedCalendarType]);
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>

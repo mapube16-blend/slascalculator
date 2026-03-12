@@ -91,11 +91,8 @@ export const apiService = {
    * @param {Object} filters - Filtros (startDate, endDate, organizationId, ownerId, state, type, calendarType)
    */
   getMetrics: async (filters) => {
-    console.log('📊 [API] getMetrics - Filtros originales:', filters);
     const filteredData = filterNullValues(filters);
-    console.log('📊 [API] getMetrics - Filtros después de filtrar nulls:', filteredData);
     const response = await api.post('/metrics', filteredData);
-    console.log('📊 [API] getMetrics - Respuesta:', response.data);
 
     // Transformar snake_case a camelCase y aplanar estructura
     const metrics = response.data.data;
@@ -118,7 +115,6 @@ export const apiService = {
       _raw: metrics
     };
 
-    console.log('📊 [API] getMetrics - Datos transformados:', transformed);
     return transformed;
   },
 
@@ -127,11 +123,8 @@ export const apiService = {
    * @param {Object} filters - Filtros (startDate, endDate, organizationId, ownerId, state, type, calendarType)
    */
   getTickets: async (filters) => {
-    console.log('🎫 [API] getTickets - Filtros originales:', filters);
     const filteredData = filterNullValues(filters);
-    console.log('🎫 [API] getTickets - Filtros después de filtrar nulls:', filteredData);
     const response = await api.post('/tickets', filteredData);
-    console.log('🎫 [API] getTickets - Respuesta:', response.data);
     return response.data.data || [];
   },
 

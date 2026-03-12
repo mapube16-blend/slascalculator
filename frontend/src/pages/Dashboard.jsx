@@ -62,9 +62,6 @@ const Dashboard = () => {
   };
 
   const handleLoadMetrics = useCallback(async (filtersOverride) => {
-    console.log('🚀 [Dashboard] Iniciando carga de métricas...');
-    console.log('🚀 [Dashboard] state.filters:', state.filters);
-    console.log('🚀 [Dashboard] filtersOverride:', filtersOverride);
     setLoading(true);
     dispatch({ type: 'SET_LOADING', payload: true });
 
@@ -72,12 +69,6 @@ const Dashboard = () => {
       const filters = {
         ...(filtersOverride || state.filters)
       };
-      console.log('🚀 [Dashboard] Filtros combinados a enviar:', filters);
-
-      // Si hay búsqueda por número de ticket, informar al usuario
-      if (filters.ticketNumber) {
-        console.log(`🔍 [Dashboard] Buscando ticket específico: #${filters.ticketNumber}`);
-      }
 
       // Cargar métricas y tickets
       const [metrics, tickets] = await Promise.all([
@@ -85,16 +76,11 @@ const Dashboard = () => {
         apiService.getTickets(filters)
       ]);
 
-      console.log('✅ [Dashboard] Métricas recibidas:', metrics);
-      console.log('✅ [Dashboard] Tickets recibidos:', tickets?.length, 'tickets');
-
       // Feedback específico para búsqueda de ticket
       if (filters.ticketNumber) {
         if (tickets.length === 0) {
-          console.warn(`⚠️ [Dashboard] No se encontró el ticket #${filters.ticketNumber}`);
           dispatch({ type: 'ADD_TOAST', payload: { type: 'warning', message: `No se encontró el ticket #${filters.ticketNumber}` } });
         } else {
-          console.log(`✅ [Dashboard] Ticket #${filters.ticketNumber} encontrado`);
           dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: `Ticket #${filters.ticketNumber} encontrado` } });
         }
       } else {

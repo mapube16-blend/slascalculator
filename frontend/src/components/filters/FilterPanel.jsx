@@ -78,8 +78,6 @@ const FilterPanel = ({ onLoadMetrics, onExportExcel }) => {
       return acc;
     }, {});
 
-    console.log('📋 [FilterPanel] Aplicando filtros:', normalizedFilters);
-
     dispatch({ type: 'SET_FILTERS', payload: normalizedFilters });
     if (onLoadMetrics) {
       onLoadMetrics(normalizedFilters);
@@ -150,13 +148,7 @@ const FilterPanel = ({ onLoadMetrics, onExportExcel }) => {
     };
     setLocalFilters(clearedFilters);
     setActivePreset('Últimos 30 días');
-    dispatch({
-      type: 'SET_FILTERS',
-      payload: {
-        startDate: thirtyDaysAgo,
-        endDate: today
-      }
-    });
+    dispatch({ type: 'SET_FILTERS', payload: clearedFilters });
   };
 
   return (

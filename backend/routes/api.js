@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const slaService = require('../services/slaService');
 const excelService = require('../services/excelService');
+const dynamoService = require('../services/dynamoService');
 const {
   validate,
   filtersValidation,
@@ -37,7 +38,6 @@ router.get('/projects', async (req, res) => {
 // Obtener equipos disponibles (desde DynamoDB)
 router.get('/teams', async (req, res) => {
   try {
-    const dynamoService = require('../services/dynamoService');
     const teams = await dynamoService.getAllTeams();
     const active = teams
       .filter(t => t.active !== false)
