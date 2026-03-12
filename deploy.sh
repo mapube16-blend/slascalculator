@@ -69,8 +69,12 @@ ssh_cmd bash << REMOTE
   echo "  → git pull..."
   git pull origin main
 
-  echo "  → npm install..."
+  echo "  → npm install backend..."
   npm install --prefix backend --production --quiet
+
+  echo "  → npm install frontend + build..."
+  npm install --prefix frontend --quiet
+  npm run build --prefix frontend --quiet
 
   echo "  → Reiniciando servidor..."
   pkill -f "node server.js" || true

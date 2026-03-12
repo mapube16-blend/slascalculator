@@ -307,8 +307,8 @@ class SLAService {
   }
 
   async _computeTicketsWithSLA(filters = {}) {
-    const { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType = 'laboral', type } = filters;
-    logger.debug('[SLAService] getTicketsWithSLA', { startDate, endDate, organizationId, ownerId, state, ticketNumber, calendarType, type });
+    const { startDate, endDate, organizationId, ownerId, teamId, state, ticketNumber, calendarType = 'laboral', type } = filters;
+    logger.debug('[SLAService] getTicketsWithSLA', { startDate, endDate, organizationId, ownerId, teamId, state, ticketNumber, calendarType, type });
 
     let query = `
       SELECT 
@@ -471,6 +471,11 @@ class SLAService {
           };
         })
       );
+
+      // Filtrar por equipo si se especificó teamId
+      if (teamId) {
+        return processedTickets.filter(t => t.team_id === teamId);
+      }
 
       return processedTickets;
     } catch (error) {

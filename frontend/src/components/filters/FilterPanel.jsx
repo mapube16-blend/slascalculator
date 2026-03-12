@@ -43,6 +43,11 @@ const FilterPanel = ({ onLoadMetrics, onExportExcel }) => {
     label: a.name
   }));
 
+  const teamOptions = state.teams.map(t => ({
+    value: t.id,
+    label: t.type === 'gerencia' ? `Gerencia: ${t.name}` : `Área: ${t.name}`
+  }));
+
   const stateOptions = [
     { value: 'Nuevo', label: 'Nuevo' },
     { value: 'Abierto', label: 'Abierto' },
@@ -139,6 +144,7 @@ const FilterPanel = ({ onLoadMetrics, onExportExcel }) => {
       endDate: today,
       organizationId: null,
       ownerId: null,
+      teamId: null,
       state: null,
       type: null
     };
@@ -222,6 +228,15 @@ const FilterPanel = ({ onLoadMetrics, onExportExcel }) => {
           options={typeOptions}
           value={localFilters.type || ''}
           onChange={(val) => handleFilterChange('type', val)}
+        />
+
+        {/* Equipo */}
+        <Select
+          label="Equipo"
+          placeholder="Todos los Equipos"
+          options={teamOptions}
+          value={localFilters.teamId || ''}
+          onChange={(e) => handleFilterChange('teamId', e.target.value)}
         />
 
         {/* Agente */}

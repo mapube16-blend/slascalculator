@@ -79,6 +79,11 @@ export const apiService = {
     return response.data.data || [];
   },
 
+  getTeams: async () => {
+    const response = await api.get('/teams');
+    return response.data.data || [];
+  },
+
   // ==================== MÉTRICAS Y TICKETS ====================
 
   /**

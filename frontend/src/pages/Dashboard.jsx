@@ -37,16 +37,18 @@ const Dashboard = () => {
 
   const loadInitialData = async () => {
     try {
-      // Cargar proyectos, agentes, tipos
-      const [projects, agents, ticketTypes] = await Promise.all([
+      // Cargar proyectos, agentes, tipos y equipos
+      const [projects, agents, ticketTypes, teams] = await Promise.all([
         apiService.getProjects(),
         apiService.getAgents(),
-        apiService.getTicketTypes()
+        apiService.getTicketTypes(),
+        apiService.getTeams().catch(() => [])
       ]);
 
       dispatch({ type: 'SET_PROJECTS', payload: projects });
       dispatch({ type: 'SET_AGENTS', payload: agents });
       dispatch({ type: 'SET_TICKET_TYPES', payload: ticketTypes });
+      dispatch({ type: 'SET_TEAMS', payload: teams });
       setShowVPNModal(false);
     } catch (error) {
       console.error('Error cargando datos iniciales:', error);

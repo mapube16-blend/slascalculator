@@ -13,6 +13,7 @@ const initialState = {
   projects: [],
   agents: [],
   ticketTypes: [],
+  teams: [],
 
   // Filtros
   filters: {
@@ -21,6 +22,7 @@ const initialState = {
     endDate: null,
     organizationId: null,
     ownerId: null,
+    teamId: null,
     state: null,
     type: null
   },
@@ -94,6 +96,12 @@ function appReducer(state, action) {
       return {
         ...state,
         ticketTypes: action.payload
+      };
+
+    case 'SET_TEAMS':
+      return {
+        ...state,
+        teams: action.payload
       };
 
     // ==================== FILTROS ====================

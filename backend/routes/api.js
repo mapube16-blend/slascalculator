@@ -34,6 +34,24 @@ router.get('/projects', async (req, res) => {
   }
 });
 
+// Obtener equipos disponibles (desde DynamoDB)
+router.get('/teams', async (req, res) => {
+  try {
+    const dynamoService = require('../services/dynamoService');
+    const teams = await dynamoService.getAllTeams();
+    const active = teams
+      .filter(t => t.active !== false)
+      .map(t => ({ id: t.id, name: t.name, type: t.type }))
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type < b.type ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    res.json({ success: true, data: active });
+  } catch (error) {
+    handleApiError(res, error, 'equipos');
+  }
+});
+
 // Obtener agentes disponibles
 router.get('/agents', async (req, res) => {
   try {
