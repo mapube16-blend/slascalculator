@@ -42,7 +42,10 @@ const apiLimiter = rateLimit({
 // Aplicar rate limiting solo a rutas de API
 app.use('/api/', apiLimiter);
 
-// Middleware de verificación de conexión a BD (solo para rutas API)
+// Rutas admin (DynamoDB — no requieren conexión a PostgreSQL)
+app.use('/api/admin', adminRoutes);
+
+// Middleware de verificación de conexión a BD (solo para rutas no-admin)
 app.use('/api', async (req, res, next) => {
   if (isDbConnected) {
     return next();
@@ -62,7 +65,6 @@ app.use('/api', async (req, res, next) => {
 
 // Rutas de API
 app.use('/api', apiRoutes);
-app.use('/api/admin', adminRoutes);
 
 // Servir frontend React en producción (desactivar si el frontend está en S3)
 if (process.env.SERVE_FRONTEND !== 'false') {
