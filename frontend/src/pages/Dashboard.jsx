@@ -12,7 +12,6 @@ import {
 } from 'phosphor-react';
 
 // Components
-import CalendarSelector from '../components/metrics/CalendarSelector';
 import FilterPanel from '../components/filters/FilterPanel';
 import MetricCard from '../components/metrics/MetricCard';
 import SLAProgress from '../components/metrics/SLAProgress';
@@ -66,15 +65,12 @@ const Dashboard = () => {
     console.log('🚀 [Dashboard] Iniciando carga de métricas...');
     console.log('🚀 [Dashboard] state.filters:', state.filters);
     console.log('🚀 [Dashboard] filtersOverride:', filtersOverride);
-    console.log('🚀 [Dashboard] state.selectedCalendarType:', state.selectedCalendarType);
-
     setLoading(true);
     dispatch({ type: 'SET_LOADING', payload: true });
 
     try {
       const filters = {
-        ...(filtersOverride || state.filters),
-        calendarType: state.selectedCalendarType
+        ...(filtersOverride || state.filters)
       };
       console.log('🚀 [Dashboard] Filtros combinados a enviar:', filters);
 
@@ -116,15 +112,14 @@ const Dashboard = () => {
       setLoading(false);
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.filters, state.selectedCalendarType, dispatch]);
+  }, [state.filters, dispatch]);
 
   const handleExportExcel = useCallback(async () => {
     try {
       dispatch({ type: 'ADD_TOAST', payload: { type: 'info', message: 'Generando reporte Excel...' } });
 
       const filters = {
-        ...state.filters,
-        calendarType: state.selectedCalendarType
+        ...state.filters
       };
 
       // TODO: Capturar gráficas como imágenes
@@ -138,7 +133,7 @@ const Dashboard = () => {
       console.error('Error exportando Excel:', error);
       dispatch({ type: 'ADD_TOAST', payload: { type: 'error', message: 'Error al generar el reporte' } });
     }
-  }, [state.filters, state.selectedCalendarType, dispatch]);
+  }, [state.filters, dispatch]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -238,9 +233,6 @@ const Dashboard = () => {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-6">
-          {/* Selector de Calendario */}
-          <CalendarSelector />
-
           {/* Panel de Filtros */}
           <FilterPanel
             onLoadMetrics={handleLoadMetrics}

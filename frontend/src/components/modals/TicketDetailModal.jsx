@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X, Clock, Calendar, User, Tag, ArrowRight } from 'phosphor-react';
 import { apiService } from '../../services/api';
-import { useApp } from '../../context/AppContext';
-
 const PERIOD_COLORS = {
   Empresa: { dot: 'bg-blue-500', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', line: 'bg-blue-300' },
   Cliente: { dot: 'bg-amber-500', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', line: 'bg-amber-300' },
@@ -10,7 +8,6 @@ const PERIOD_COLORS = {
 };
 
 const TicketDetailModal = ({ ticketNumber, onClose }) => {
-  const { state } = useApp();
   const [ticketDetail, setTicketDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,10 +20,7 @@ const TicketDetailModal = ({ ticketNumber, onClose }) => {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiService.getTicketHistory(
-        ticketNumber,
-        state.selectedCalendarType
-      );
+      const data = await apiService.getTicketHistory(ticketNumber);
       setTicketDetail(data);
     } catch (err) {
       console.error('Error cargando detalle del ticket:', err);
