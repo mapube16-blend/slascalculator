@@ -102,3 +102,6 @@ if [ "$SHOW_LOGS" = true ]; then
   echo -e "${YELLOW}Logs en tiempo real (Ctrl+C para salir):${NC}"
   ssh_cmd "tail -f $EC2_LOG_FILE"
 fi
+SQL Error [42601]: ERROR: syntax error at or near "SELECT"
+  Position: 43SQL Error [42601]: ERROR: syntax error at or near "SELECT"
+  Position: 43
