@@ -59,6 +59,13 @@ if [ "$NO_PUSH" = false ]; then
   echo -e "${GREEN}✓ Push completado${NC}"
 fi
 
+# ── Paso 1.5: Copiar archivos de config no commiteados ────
+echo -e "${YELLOW}Copiando .env.production al EC2...${NC}"
+scp -i "$EC2_KEY" -o StrictHostKeyChecking=no \
+  frontend/.env.production \
+  "${EC2_USER}@${EC2_HOST}:${EC2_APP_DIR}/frontend/.env.production"
+echo -e "${GREEN}✓ .env.production copiado${NC}"
+
 # ── Paso 2: Deploy en EC2 ─────────────────────────────────
 echo -e "${YELLOW}[2/2] Desplegando en EC2...${NC}"
 
@@ -76,21 +83,11 @@ ssh_cmd bash << REMOTE
   npm install --prefix frontend --quiet
   npm run build --prefix frontend --quiet
 
-  echo "  → Reiniciando servidor..."
-  pkill -f "node server.js" || true
-  sleep 1
+  echo "  → Reiniciando servidor (pm2)..."
+  pm2 reload sla-reporter
 
-  cd backend
-  nohup node server.js > "$EC2_LOG_FILE" 2>&1 &
-  sleep 2
-
-  if pgrep -f "node server.js" > /dev/null; then
-    echo "  ✓ Servidor corriendo (PID: \$(pgrep -f 'node server.js'))"
-  else
-    echo "  ✗ ERROR: el servidor no inició. Revisa los logs:"
-    tail -20 "$EC2_LOG_FILE"
-    exit 1
-  fi
+  echo "  ✓ Servidor recargado"
+  pm2 list
 REMOTE
 
 echo ""
@@ -102,6 +99,3 @@ if [ "$SHOW_LOGS" = true ]; then
   echo -e "${YELLOW}Logs en tiempo real (Ctrl+C para salir):${NC}"
   ssh_cmd "tail -f $EC2_LOG_FILE"
 fi
-SQL Error [42601]: ERROR: syntax error at or near "SELECT"
-  Position: 43SQL Error [42601]: ERROR: syntax error at or near "SELECT"
-  Position: 43
