@@ -64,6 +64,12 @@ const filtersValidation = [
     .optional()
     .isInt({ min: 1 })
     .withMessage('ownerId debe ser un número entero positivo'),
+  body('teamId')
+    .optional()
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('teamId debe ser una cadena no vacía'),
   body('state')
     .optional()
     .isString()

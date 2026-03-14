@@ -65,64 +65,53 @@ npm run dev
 |---|---|---|
 | Backend + Frontend | EC2 (Node.js directo) | `10.67.4.151` (IP privada, requiere VPN) |
 | Base de datos | RDS PostgreSQL | Base de datos de Zammad (solo lectura) |
-| Registro de imágenes | GitHub Container Registry (GHCR) | `ghcr.io/mapube16/zammad-sla-reporter-backend` |
 | Puerto | 443 | Expuesto directamente por Node.js (`sudo setcap` para bind sin root) |
 
-### CI/CD automático
+### Despliegue
 
-El proyecto usa GitHub Actions para despliegue continuo. Cada push a `main`:
+El proyecto se despliega **manualmente** en EC2 cuando hay cambios.
 
-1. **Build**: Construye la imagen Docker (multi-stage: compila el frontend React con Vite, luego monta el backend Node.js con el `dist/` incluido).
-2. **Push**: Sube la imagen a GitHub Container Registry (GHCR).
-3. **Deploy**: Intenta conectarse a la EC2 por SSH — **este paso falla** porque la EC2 está en red privada (`10.67.4.151`) sin acceso desde internet. El deploy siempre se hace manualmente (ver abajo).
+#### Opción 1: Usar `deploy.sh` (Recomendado)
 
-```
-git push origin main  →  GitHub Actions  →  GHCR  ✓
-                                          →  SSH deploy a EC2  ✗ (IP privada, sin acceso desde internet)
-```
-
-> **Importante:** Solo los pasos de Build y Push funcionan automáticamente. El deploy en EC2 siempre requiere intervención manual.
-
-**Secrets requeridos en el repositorio GitHub** (`Settings → Secrets and variables → Actions`):
-
-| Secret | Descripción |
-|---|---|
-| `DEPLOY_HOST` | IP o hostname de la EC2 |
-| `DEPLOY_USER` | Usuario SSH (ej. `ec2-user`) |
-| `DEPLOY_SSH_KEY` | Clave privada SSH (contenido del `.pem`) |
-| `DEPLOY_PORT` | Puerto SSH (por defecto `22`) |
-| `DEPLOY_PATH` | Ruta en la EC2 donde está el `docker-compose.yml` |
-
-### Desplegar cambios
-
-**Paso 1 — Push (automático via CI):**
 ```bash
-git add .
-git commit -m "descripcion del cambio"
-git push origin main
+# Setup inicial (una sola vez)
+cp .env.deploy.example .env.deploy
+# Editar .env.deploy con:
+#   EC2_KEY="/ruta/a/tu-clave.pem"
+#   EC2_HOST="10.67.4.151"
+#   EC2_USER="ec2-user"
+
+# Deploy (push + instala en EC2)
+./deploy.sh
+
+# Deploy sin push a GitHub
+./deploy.sh --no-push
+
+# Deploy + mostrar logs al final
+./deploy.sh --logs
 ```
 
-El pipeline de GitHub Actions construye y sube la imagen a GHCR automáticamente. El pipeline puede verse en `Actions` del repositorio GitHub.
-
-**Paso 2 — Deploy manual en EC2:**
+#### Opción 2: Deploy manual SSH
 
 ```bash
 # 1. Conectarse a la EC2 (requiere VPN activa)
-ssh -i "nuv-prod-ai-servicecenter-informespk 1.pem" ec2-user@10.67.4.151
+ssh -i "clave.pem" ec2-user@10.67.4.151
 
-# 2. Ir al directorio del proyecto y traer cambios
+# 2. Traer cambios y reconstruir
 cd /home/ec2-user/slascalculator
 git pull origin main
+npm install --prefix backend --production
+npm install --prefix frontend
+npm run build --prefix frontend
 
-# 3. Instalar dependencias (si hay cambios en package.json)
-cd backend && npm install && cd ..
-
-# 4. Reiniciar el servidor
-pkill -f "node server.js"
+# 3. Reiniciar el servidor
+pkill -f "node server.js" || true
+sleep 1
 cd backend
 nohup node server.js > /home/ec2-user/app.log 2>&1 &
 
-# 5. Verificar que levantó correctamente
+# 4. Verificar que levantó
+sleep 2
 tail -f /home/ec2-user/app.log
 ```
 
@@ -138,11 +127,14 @@ ps aux | grep "node server.js"
 # Ver qué proceso escucha en el puerto 443
 sudo lsof -i :443
 
-# Habilitar binding al puerto 443 sin root (hacer una sola vez si cambia el binario de node)
+# Detener el servidor
+pkill -f "node server.js"
+
+# Habilitar binding al puerto 443 sin root (hacer una sola vez)
 sudo setcap 'cap_net_bind_service=+ep' $(which node)
 ```
 
-> **Nota:** El servidor corre directamente con Node.js (`nohup node server.js`), no con Docker. El `PORT=443` está configurado en `backend/.env`.
+> **Nota:** El servidor corre directamente con Node.js, no dentro de contenedores Docker. El `PORT=443` está configurado en `backend/.env`.
 
 ### URL de la aplicación
 
