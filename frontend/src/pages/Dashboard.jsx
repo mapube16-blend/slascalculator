@@ -36,17 +36,19 @@ const Dashboard = () => {
 
   const loadInitialData = async () => {
     try {
-      // Cargar proyectos, agentes, tipos y equipos
-      const [projects, agents, ticketTypes, teams] = await Promise.all([
+      // Cargar proyectos, agentes, tipos, estados y equipos
+      const [projects, agents, ticketTypes, ticketStates, teams] = await Promise.all([
         apiService.getProjects(),
         apiService.getAgents(),
         apiService.getTicketTypes(),
+        apiService.getTicketStates(),
         apiService.getTeams().catch(() => [])
       ]);
 
       dispatch({ type: 'SET_PROJECTS', payload: projects });
       dispatch({ type: 'SET_AGENTS', payload: agents });
       dispatch({ type: 'SET_TICKET_TYPES', payload: ticketTypes });
+      dispatch({ type: 'SET_TICKET_STATES', payload: ticketStates });
       dispatch({ type: 'SET_TEAMS', payload: teams });
       setShowVPNModal(false);
     } catch (error) {

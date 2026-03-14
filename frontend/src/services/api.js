@@ -79,6 +79,14 @@ export const apiService = {
     return response.data.data || [];
   },
 
+  /**
+   * Obtener estados de tickets desde Zammad
+   */
+  getTicketStates: async () => {
+    const response = await api.get('/ticket-states');
+    return response.data.data || [];
+  },
+
   getTeams: async () => {
     const response = await api.get('/teams');
     return response.data.data || [];

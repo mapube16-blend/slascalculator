@@ -48,14 +48,10 @@ const FilterPanel = ({ onLoadMetrics, onExportExcel }) => {
     label: t.type === 'gerencia' ? `Gerencia: ${t.name}` : `Área: ${t.name}`
   }));
 
-  const stateOptions = [
-    { value: 'Nuevo', label: 'Nuevo' },
-    { value: 'Abierto', label: 'Abierto' },
-    { value: 'En Progreso', label: 'En Progreso' },
-    { value: 'En Espera', label: 'En Espera' },
-    { value: 'Resuelto', label: 'Resuelto' },
-    { value: 'Cerrado', label: 'Cerrado' },
-  ];
+  const stateOptions = state.ticketStates.map(s => ({
+    value: s,
+    label: s
+  }));
 
   const typeOptions = state.ticketTypes.map(t => ({
     value: t,

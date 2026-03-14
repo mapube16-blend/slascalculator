@@ -108,6 +108,16 @@ router.get('/ticket-types', async (req, res) => {
   }
 });
 
+// Obtener estados de tickets desde Zammad
+router.get('/ticket-states', async (req, res) => {
+  try {
+    const states = await slaService.getTicketStates();
+    res.json({ success: true, data: states });
+  } catch (error) {
+    handleApiError(res, error, 'estados de tickets');
+  }
+});
+
 
 // Obtener historial detallado de estados de un ticket
 router.get('/ticket-history/:number', ticketHistoryValidation, validate, async (req, res) => {

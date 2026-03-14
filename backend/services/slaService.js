@@ -939,6 +939,22 @@ class SLAService {
     }
   }
 
+  // Obtener lista de estados de tickets desde Zammad
+  async getTicketStates() {
+    try {
+      const result = await pool.query(`
+        SELECT id, name
+        FROM ticket_states
+        WHERE active = true
+        ORDER BY id ASC
+      `);
+      return result.rows.map(row => row.name);
+    } catch (error) {
+      logger.error('Error en getTicketStates', error);
+      return [];
+    }
+  }
+
   /**
    * Obtener historial detallado de estados de un ticket
    * Mergea cambios de estado + cambios de owner cronologicamente.
