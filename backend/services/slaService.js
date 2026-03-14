@@ -411,26 +411,6 @@ class SLAService {
       logger.error('[SLAService] No se pudo cargar DynamoDB, usando fallback de constants', e);
     }
 
-    // FIX: Aplicar filtro de teamId si está presente
-    // agentTeamMap es {agentId → {id: teamId, name}}
-    if (teamId && agentTeamMap && Object.keys(agentTeamMap).length > 0) {
-      const agentIdsInTeam = Object.keys(agentTeamMap)
-        .filter(agentId => agentTeamMap[agentId]?.id === teamId)
-        .map(Number);
-      
-      logger.debug('[SLAService] Filtro de equipo aplicado', { teamId, agentIdsInTeam });
-      
-      if (agentIdsInTeam.length > 0) {
-        query += ` AND t.owner_id = ANY($${paramCount}::int[])`;
-        params.push(agentIdsInTeam);
-        paramCount++;
-      } else {
-        // Si no hay agentes en el equipo, retornar lista vacía
-        logger.warn('[SLAService] No se encontraron agentes para el equipo', { teamId });
-        return [];
-      }
-    }
-
     try {
       const result = await pool.query(query, params);
       logger.debug('[SLAService] Tickets encontrados en DB', { count: result.rows?.length });
