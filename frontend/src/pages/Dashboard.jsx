@@ -200,7 +200,7 @@ const Dashboard = () => {
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
-          <img src="/logo.png" alt="Blend" className="h-10" />
+          <img src="/logo.png" alt="Blend" className="h-16" />
           <div className="flex-1">
             <h1 className="text-2xl font-bold text-gray-900">
               Dashboard de SLA
