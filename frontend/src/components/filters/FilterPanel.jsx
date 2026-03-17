@@ -130,8 +130,12 @@ const FilterPanel = ({ onLoadMetrics, onExportExcel }) => {
     setActivePreset(preset.label);
     const newFilters = { ...localFilters, ...range };
     setLocalFilters(newFilters);
-    dispatch({ type: 'SET_FILTERS', payload: newFilters });
-    if (onLoadMetrics) onLoadMetrics(newFilters);
+    const normalizedFilters = Object.entries(newFilters).reduce((acc, [key, value]) => {
+      acc[key] = value === '' ? null : value;
+      return acc;
+    }, {});
+    dispatch({ type: 'SET_FILTERS', payload: normalizedFilters });
+    if (onLoadMetrics) onLoadMetrics(normalizedFilters);
   };
 
   const handleClearFilters = () => {
