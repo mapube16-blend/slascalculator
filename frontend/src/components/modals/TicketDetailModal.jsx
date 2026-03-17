@@ -7,6 +7,74 @@ const PERIOD_COLORS = {
   Excluido: { dot: 'bg-gray-400', bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-500', line: 'bg-gray-300' }
 };
 
+// Umbrales de tiempo por estado (en minutos)
+const STATE_TIME_THRESHOLDS = {
+  'Recepcion': { warning: 15, critical: 30 },
+  'Clasificacion': { warning: 20, critical: 45 },
+  'Diagnostico': { warning: 30, critical: 60 },
+  'En progreso': { warning: 60, critical: 120 },
+  'En Espera': { warning: 120, critical: 240 },
+  'Resuelto': { warning: 240, critical: 480 },
+  'Cerrado': { warning: 480, critical: 960 },
+  'Cancelado': { warning: 480, critical: 960 }
+};
+
+// Función para obtener color dinámico según el tiempo y estado
+const getStateColor = (stateName, durationMinutes) => {
+  const normalize = (value) =>
+    (value || '')
+      .toString()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+
+  const normalizedState = normalize(stateName);
+  const thresholds = STATE_TIME_THRESHOLDS[Object.keys(STATE_TIME_THRESHOLDS).find(key => normalize(key) === normalizedState)];
+
+  // Si no hay umbral definido, usa grises por defecto
+  if (!thresholds) {
+    return {
+      dot: 'bg-gray-400',
+      bg: 'bg-gray-50',
+      border: 'border-gray-200',
+      text: 'text-gray-700',
+      line: 'bg-gray-300'
+    };
+  }
+
+  // Verde: dentro del rango seguro
+  if (durationMinutes < thresholds.warning) {
+    return {
+      dot: 'bg-green-500',
+      bg: 'bg-green-50',
+      border: 'border-green-200',
+      text: 'text-green-700',
+      line: 'bg-green-300'
+    };
+  }
+
+  // Amarillo/Naranja: alerta
+  if (durationMinutes < thresholds.critical) {
+    return {
+      dot: 'bg-amber-500',
+      bg: 'bg-amber-50',
+      border: 'border-amber-200',
+      text: 'text-amber-700',
+      line: 'bg-amber-300'
+    };
+  }
+
+  // Rojo: crítico
+  return {
+    dot: 'bg-red-500',
+    bg: 'bg-red-50',
+    border: 'border-red-200',
+    text: 'text-red-700',
+    line: 'bg-red-300'
+  };
+};
+
 const TicketDetailModal = ({ ticketNumber, onClose }) => {
   const [ticketDetail, setTicketDetail] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -210,7 +278,8 @@ const TicketDetailModal = ({ ticketNumber, onClose }) => {
                 {ticketDetail.history && ticketDetail.history.length > 0 ? (
                   <div className="relative">
                     {ticketDetail.history.map((entry, index) => {
-                      const colors = PERIOD_COLORS[entry.type] || PERIOD_COLORS.Excluido;
+                      // Usar color dinámico basado en estado y duración
+                      const colors = getStateColor(entry.to, entry.durationMinutes || 0);
                       const isLast = index === ticketDetail.history.length - 1;
                       const barWidth = maxDuration > 0
                         ? Math.max((entry.durationMinutes / maxDuration) * 100, 4)

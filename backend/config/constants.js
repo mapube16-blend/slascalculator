@@ -127,7 +127,7 @@ const API = {
   DEFAULT_PORT: 3000,
   RATE_LIMIT: {
     WINDOW_MS: 15 * 60 * 1000, // 15 minutes
-    MAX_REQUESTS: 100          // max requests per window
+    MAX_REQUESTS: 1000         // max requests per window (increased for dev)
   }
 };
 

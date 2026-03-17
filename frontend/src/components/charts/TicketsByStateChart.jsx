@@ -43,7 +43,7 @@ const TicketsByStateChart = ({ tickets }) => {
   const chartRef = useRef(null);
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
-  const [activeState, setActiveState] = useState(null); // null = todos
+  const [activeState, setActiveState] = useState('Recepcion'); // Recepcion por defecto
 
   // Tickets sin estados excluidos
   const activeTickets = useMemo(() => {

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -25,12 +26,28 @@ ChartJS.register(
 );
 
 const SLATrendChart = ({ data }) => {
-  const chartData = {
-    labels: data?.labels || [],
+  const labels = data?.labels || [];
+  const firstResponse = data?.firstResponse || [];
+  const resolution = data?.resolution || [];
+  const windowSize = data?.windowSize || 7;
+
+  const [windowStart, setWindowStart] = useState(0);
+
+  useEffect(() => {
+    const maxStart = Math.max(0, labels.length - windowSize);
+    setWindowStart(maxStart);
+  }, [labels.length, windowSize]);
+
+  const maxStart = Math.max(0, labels.length - windowSize);
+  const clampedStart = Math.min(windowStart, maxStart);
+  const windowEnd = Math.min(labels.length, clampedStart + windowSize);
+
+  const chartData = useMemo(() => ({
+    labels: labels.slice(clampedStart, windowEnd),
     datasets: [
       {
         label: 'Primera Respuesta',
-        data: data?.firstResponse || [],
+        data: firstResponse.slice(clampedStart, windowEnd),
         borderColor: '#4DD4D4',
         backgroundColor: 'rgba(77, 212, 212, 0.1)',
         tension: 0.4,
@@ -40,7 +57,7 @@ const SLATrendChart = ({ data }) => {
       },
       {
         label: 'Resolución',
-        data: data?.resolution || [],
+        data: resolution.slice(clampedStart, windowEnd),
         borderColor: '#10B981',
         backgroundColor: 'rgba(16, 185, 129, 0.1)',
         tension: 0.4,
@@ -49,7 +66,7 @@ const SLATrendChart = ({ data }) => {
         pointHoverRadius: 6,
       }
     ]
-  };
+  }), [labels, firstResponse, resolution, clampedStart, windowEnd]);
 
   const options = {
     responsive: true,
@@ -130,6 +147,22 @@ const SLATrendChart = ({ data }) => {
       <div style={{ height: '300px' }}>
         <Line data={chartData} options={options} />
       </div>
+      {labels.length > windowSize && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
+            <span>{labels[clampedStart]}</span>
+            <span>{labels[windowEnd - 1]}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={maxStart}
+            value={clampedStart}
+            onChange={(e) => setWindowStart(Number(e.target.value))}
+            className="w-full"
+          />
+        </div>
+      )}
     </Card>
   );
 };

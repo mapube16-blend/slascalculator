@@ -31,7 +31,9 @@ router.get('/projects', async (req, res) => {
     const projects = await slaService.getProjects();
     res.json({ success: true, data: projects });
   } catch (error) {
-    handleApiError(res, error, 'proyectos');
+    console.warn('⚠️ [PROJECTS] Error (fallback a array vacío):', error.message);
+    // Fallback: retornar array vacío en lugar de error 500
+    res.json({ success: true, data: [] });
   }
 });
 
@@ -48,7 +50,9 @@ router.get('/teams', async (req, res) => {
       });
     res.json({ success: true, data: active });
   } catch (error) {
-    handleApiError(res, error, 'equipos');
+    console.warn('⚠️ [TEAMS] DynamoDB error (fallback a array vacío):', error.message);
+    // Fallback: retornar array vacío en lugar de error 500
+    res.json({ success: true, data: [] });
   }
 });
 

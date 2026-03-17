@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiService } from '../services/api';
 import {
@@ -28,8 +28,11 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [showVPNModal, setShowVPNModal] = useState(false);
   const [vpnRetrying, setVpnRetrying] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [ticketHistory, setTicketHistory] = useState(null);
+  const autoLoadDoneRef = useRef(false);
 
-  // Cargar datos iniciales
+  // Cargar datos iniciales (una sola vez)
   useEffect(() => {
     loadInitialData();
   }, []);
@@ -50,10 +53,9 @@ const Dashboard = () => {
       dispatch({ type: 'SET_TICKET_TYPES', payload: ticketTypes });
       dispatch({ type: 'SET_TICKET_STATES', payload: ticketStates });
       dispatch({ type: 'SET_TEAMS', payload: teams });
-      setShowVPNModal(false);
     } catch (error) {
       console.error('Error cargando datos iniciales:', error);
-      setShowVPNModal(true);
+      // No mostrar VPN modal - los datos de setup no son críticos
     }
   };
 
@@ -123,6 +125,60 @@ const Dashboard = () => {
     }
   }, [state.filters, dispatch]);
 
+  // Auto-cargar últimos 30 días una sola vez cuando se monta (SIN dependencias problemáticas)
+  useEffect(() => {
+    const attemptAutoload = async () => {
+      if (autoLoadDoneRef.current) return;
+      autoLoadDoneRef.current = true;
+
+      try {
+        const endDate = new Date();
+        const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+        
+        const filters = {
+          startDate: startDate.toISOString().split('T')[0],
+          endDate: endDate.toISOString().split('T')[0]
+        };
+
+        setLoading(true);
+        dispatch({ type: 'SET_LOADING', payload: true });
+
+        const [metrics, tickets] = await Promise.all([
+          apiService.getMetrics(filters),
+          apiService.getTickets(filters)
+        ]);
+
+        dispatch({ type: 'SET_METRICS', payload: metrics });
+        dispatch({ type: 'SET_TICKETS', payload: tickets });
+      } catch (error) {
+        console.error('Error en auto-load:', error);
+      } finally {
+        setLoading(false);
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
+    };
+
+    attemptAutoload();
+  }, []); // Array vacío = ejecuta 1 sola vez
+
+  // Cargar historial cuando se busca un ticket individual
+  useEffect(() => {
+    if (state.filters?.ticketNumber) {
+      const loadTicketHistory = async () => {
+        try {
+          const history = await apiService.getTicketHistory(state.filters.ticketNumber);
+          setTicketHistory(history);
+        } catch (error) {
+          console.error('Error cargando historial del ticket:', error);
+          setTicketHistory(null);
+        }
+      };
+      loadTicketHistory();
+    } else {
+      setTicketHistory(null);
+    }
+  }, [state.filters?.ticketNumber]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -147,11 +203,27 @@ const Dashboard = () => {
 
   const metrics = state.currentMetrics;
 
-  // Preparar datos para gráfica de tendencia SLA (últimos 7 días)
+  // Preparar datos para gráfica de tendencia SLA (todos los días del rango o ticket individual)
   const prepareTrendData = () => {
     if (!state.tickets || state.tickets.length === 0) return null;
 
-    // Agrupar tickets por día
+    // Si hay un ticket filtrado, mostrar tendencia de ese ticket
+    if (state.filters?.ticketNumber) {
+      const ticket = state.tickets.find(t => String(t.ticket_number) === String(state.filters.ticketNumber));
+      if (ticket) {
+        const date = new Date(ticket.created_at).toLocaleDateString('es-ES', {
+          day: '2-digit',
+          month: 'short'
+        });
+        return {
+          labels: [date],
+          firstResponse: [ticket.first_response_sla_met ? 100 : 0],
+          resolution: [ticket.resolution_sla_met ? 100 : 0]
+        };
+      }
+    }
+
+    // Si no, agrupar por día (todos los tickets)
     const ticketsByDate = state.tickets.reduce((acc, ticket) => {
       const date = new Date(ticket.created_at).toLocaleDateString('es-ES', {
         day: '2-digit',
@@ -166,8 +238,8 @@ const Dashboard = () => {
       return acc;
     }, {});
 
-    // Tomar los últimos 7 días con datos
-    const dates = Object.keys(ticketsByDate).slice(-7);
+    // Tomar todos los días con datos (para el slider)
+    const dates = Object.keys(ticketsByDate).sort();
 
     return {
       labels: dates,
@@ -182,13 +254,79 @@ const Dashboard = () => {
     };
   };
 
-  // Preparar datos para gráfica de distribución
+  // Preparar datos para gráfica de distribución (todos los tickets o ticket individual)
   const prepareDistributionData = () => {
-    if (!metrics) return null;
+    if (!state.tickets || state.tickets.length === 0) return null;
+
+    const stateConfig = [
+      { key: 'en espera', label: 'En Espera', color: '#E69F00' },
+      { key: 'diagnostico', label: 'Diagnostico', color: '#009E73' },
+      { key: 'clasificacion', label: 'Clasificacion', color: '#56B4E9' },
+      { key: 'recepcion', label: 'Recepcion', color: '#F0E442' },
+      { key: 'en progreso', label: 'En progreso', color: '#D55E00' }
+    ];
+
+    const normalize = (value) =>
+      (value || '')
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    // Si hay un ticket filtrado Y tenemos su historial, mostrar tiempo por estado
+    if (state.filters?.ticketNumber && ticketHistory?.history) {
+      const stateTimings = {};
+
+      // Sumar duración por estado
+      ticketHistory.history.forEach(entry => {
+        const normalized = normalize(entry.to || '');
+        const stateLabel = stateConfig.find(s => normalize(s.label) === normalized)?.label || entry.to;
+        const durationMinutes = entry.durationMinutes || 0;
+        
+        if (!stateTimings[stateLabel]) {
+          stateTimings[stateLabel] = 0;
+        }
+        stateTimings[stateLabel] += durationMinutes;
+      });
+
+      // Filtrar solo estados que tenemos en config
+      const filledStates = stateConfig
+        .filter(s => stateTimings[s.label] !== undefined)
+        .map(s => ({
+          label: s.label,
+          minutes: stateTimings[s.label],
+          color: s.color
+        }));
+
+      if (filledStates.length > 0) {
+        return {
+          labels: filledStates.map(s => s.label),
+          values: filledStates.map(s => Math.round(s.minutes / 60)), // Convertir a horas
+          colors: filledStates.map(s => s.color),
+          isTicketView: true,
+          ticketNumber: state.filters.ticketNumber
+        };
+      }
+    }
+
+    // Si no, mostrar distribución de estados de todos los tickets
+    const counts = stateConfig.reduce((acc, s) => {
+      acc[s.key] = 0;
+      return acc;
+    }, {});
+
+    state.tickets.forEach(ticket => {
+      const normalized = normalize(ticket.state_name);
+      const match = stateConfig.find(s => s.key === normalized);
+      if (match) counts[match.key] += 1;
+    });
 
     return {
-      labels: ['Abiertos', 'Cerrados'],
-      values: [metrics.openTickets || 0, metrics.closedTickets || 0]
+      labels: stateConfig.map(s => s.label),
+      values: stateConfig.map(s => counts[s.key] || 0),
+      colors: stateConfig.map(s => s.color),
+      isTicketView: false
     };
   };
 
@@ -199,21 +337,13 @@ const Dashboard = () => {
 
       {/* Header */}
       <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
-          <img src="/logo.png" alt="Blend" className="h-16" />
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Dashboard de SLA
-            </h1>
-            <p className="text-gray-500 text-sm">
-              Sistema de reportes personalizados para Zammad
-            </p>
-          </div>
-          <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400">
-            <span className="px-2 py-1 bg-gray-100 rounded font-mono">Ctrl+Enter</span>
-            <span>Cargar</span>
-            <span className="px-2 py-1 bg-gray-100 rounded font-mono">Ctrl+E</span>
-            <span>Exportar</span>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col items-center justify-center">
+          <div className="flex items-center gap-4">
+            <img src="/logo.png" alt="Blend" className="h-24" />
+            <div className="flex flex-col">
+              <span className="text-3xl font-extrabold text-gray-900 leading-tight tracking-tight">Service Support</span>
+              <span className="text-sm text-gray-400 tracking-widest uppercase">Dashboard de SLA</span>
+            </div>
           </div>
         </div>
       </header>
@@ -233,64 +363,113 @@ const Dashboard = () => {
           {/* Métricas - Solo mostrar si hay datos */}
           {metrics && !loading && (
             <>
-              {/* Cards de Métricas */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in-up">
-                <MetricCard
-                  title="Total de Tickets"
-                  value={metrics.totalTickets || 0}
-                  icon={Ticket}
-                  iconBgColor="bg-info-light"
-                  iconColor="text-info"
-                />
-                <MetricCard
-                  title="Tickets Cerrados"
-                  value={metrics.closedTickets || 0}
-                  icon={CheckCircle}
-                  iconBgColor="bg-success-light"
-                  iconColor="text-success"
-                />
-                <MetricCard
-                  title="Tickets Abiertos"
-                  value={metrics.openTickets || 0}
-                  icon={XCircle}
-                  iconBgColor="bg-danger-light"
-                  iconColor="text-danger"
-                />
+              {/* Tab Navigation */}
+              <div className="flex gap-2 border-b border-gray-200">
+                <button
+                  onClick={() => setActiveTab('overview')}
+                  className={`px-4 py-3 font-medium transition-colors ${
+                    activeTab === 'overview'
+                      ? 'border-b-2 border-primary text-primary'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Overview
+                </button>
+                <button
+                  onClick={() => setActiveTab('analysis')}
+                  className={`px-4 py-3 font-medium transition-colors ${
+                    activeTab === 'analysis'
+                      ? 'border-b-2 border-primary text-primary'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Análisis
+                </button>
+                <button
+                  onClick={() => setActiveTab('tickets')}
+                  className={`px-4 py-3 font-medium transition-colors ${
+                    activeTab === 'tickets'
+                      ? 'border-b-2 border-primary text-primary'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Tickets
+                </button>
               </div>
 
-              {/* Barras de Progreso SLA */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in-up animation-delay-100">
-                <SLAProgress
-                  title="Tiempo de Primera Respuesta"
-                  icon={Clock}
-                  percentage={metrics.firstResponseRate || 0}
-                  met={metrics.firstResponseMet || 0}
-                  breached={metrics.firstResponseBreached || 0}
-                />
-                <SLAProgress
-                  title="Tiempo de Resolución"
-                  icon={Target}
-                  percentage={metrics.resolutionRate || 0}
-                  met={metrics.resolutionMet || 0}
-                  breached={metrics.resolutionBreached || 0}
-                />
-              </div>
+              {/* Tab: Overview */}
+              {activeTab === 'overview' && (
+                <>
+                  {/* Cards de Métricas */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in-up">
+                    <MetricCard
+                      title="Total de Tickets"
+                      value={metrics.totalTickets || 0}
+                      icon={Ticket}
+                      iconBgColor="bg-info-light"
+                      iconColor="text-info"
+                    />
+                    <MetricCard
+                      title="Tickets Cerrados"
+                      value={metrics.closedTickets || 0}
+                      icon={CheckCircle}
+                      iconBgColor="bg-success-light"
+                      iconColor="text-success"
+                    />
+                    <MetricCard
+                      title="Tickets Abiertos"
+                      value={metrics.openTickets || 0}
+                      icon={XCircle}
+                      iconBgColor="bg-danger-light"
+                      iconColor="text-danger"
+                    />
+                  </div>
 
-              {/* Gráficas */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in-up animation-delay-200">
-                <SLATrendChart data={prepareTrendData()} />
-                <TicketDistributionChart data={prepareDistributionData()} />
-              </div>
+                  {/* Barras de Progreso SLA */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in-up animation-delay-100">
+                    <SLAProgress
+                      title="Tiempo de Primera Respuesta"
+                      icon={Clock}
+                      percentage={metrics.firstResponseRate || 0}
+                      met={metrics.firstResponseMet || 0}
+                      breached={metrics.firstResponseBreached || 0}
+                    />
+                    <SLAProgress
+                      title="Tiempo de Resolución"
+                      icon={Target}
+                      percentage={metrics.resolutionRate || 0}
+                      met={metrics.resolutionMet || 0}
+                      breached={metrics.resolutionBreached || 0}
+                    />
+                  </div>
+                </>
+              )}
 
-              {/* Gráfica de Tickets por Estado */}
-              <div className="animate-fade-in-up animation-delay-300">
-                <TicketsByStateChart tickets={state.tickets} />
-              </div>
+              {/* Tab: Análisis */}
+              {activeTab === 'analysis' && (
+                <>
+                  {/* Gráficas Tendencia + Estado */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up">
+                    <SLATrendChart data={prepareTrendData()} />
+                    <TicketDistributionChart data={prepareDistributionData()} />
+                  </div>
+                </>
+              )}
 
-              {/* Tabla de Tickets */}
-              <div className="animate-fade-in-up animation-delay-400">
-                <TicketsTable tickets={state.tickets} />
-              </div>
+              {/* Tab: Tickets */}
+              {activeTab === 'tickets' && (
+                <>
+                  {/* Gráfica de Tickets por Estado */}
+                  <div className="animate-fade-in-up">
+                    <TicketsByStateChart tickets={state.tickets} />
+                  </div>
+
+                  {/* Tabla de Tickets */}
+                  <div className="animate-fade-in-up">
+                    <TicketsTable tickets={state.tickets} />
+                  </div>
+                </>
+              )}
             </>
           )}
 
