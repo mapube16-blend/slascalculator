@@ -135,7 +135,7 @@ const outerLabelsPlugin = {
   }
 };
 
-const TicketDistributionChart = ({ data }) => {
+const TicketDistributionChart = ({ data, onStateClick }) => {
   const labels = data?.labels?.length ? data.labels : DEFAULT_LABELS;
   const values = data?.values?.length ? data.values : DEFAULT_VALUES;
   const palette = data?.colors?.length ? data.colors : getPalette(labels.length);
@@ -161,19 +161,7 @@ const TicketDistributionChart = ({ data }) => {
       padding: { top: 16, bottom: 16, left: 24, right: 24 }
     },
     plugins: {
-      legend: {
-        position: 'right',
-        labels: {
-          padding: 12,
-          color: '#111827',
-          font: {
-            size: 12,
-            family: 'Inter, sans-serif'
-          },
-          usePointStyle: true,
-          pointStyle: 'circle'
-        }
-      },
+      legend: { display: false },
       tooltip: {
         backgroundColor: 'rgba(15, 23, 42, 0.95)',
         padding: 12,
@@ -190,14 +178,24 @@ const TicketDistributionChart = ({ data }) => {
             const label = context.label || '';
             const value = context.parsed || 0;
             const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-            return `${label}: ${value} (${percentage}%)`;
+            return `${label}: ${value} (${percentage}%) — clic para ver tickets`;
           }
         }
       },
       centerText: { title: 'Total', value: total, color: '#111827' },
       outerLabels: { offset: 14, textOffset: 14, minSpacing: 14 }
     },
-    cutout: '72%'
+    cutout: '72%',
+    onClick: (_e, elements) => {
+      if (elements.length > 0 && onStateClick) {
+        const clickedLabel = labels[elements[0].index];
+        onStateClick(clickedLabel);
+      }
+    },
+    onHover: (event, elements) => {
+      const canvas = event.native?.target;
+      if (canvas) canvas.style.cursor = elements.length > 0 && onStateClick ? 'pointer' : 'default';
+    }
   };
 
   return (
@@ -218,6 +216,19 @@ const TicketDistributionChart = ({ data }) => {
           </h3>
           <div style={{ height: '320px' }}>
             <Doughnut data={chartData} options={options} plugins={[centerTextPlugin, outerLabelsPlugin]} />
+          </div>
+          <div className="flex flex-wrap justify-center gap-2 mt-4">
+            {labels.map((label, i) => (
+              <button
+                key={label}
+                onClick={() => onStateClick?.(label)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-gray-200 bg-white hover:shadow-sm hover:scale-105 transition-all cursor-pointer"
+              >
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: palette[i] }} />
+                {label}
+                <span className="text-gray-400">({values[i]})</span>
+              </button>
+            ))}
           </div>
         </>
       )}
