@@ -35,7 +35,8 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (ticketStateFilter && drilldownRef.current) {
-      drilldownRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const top = drilldownRef.current.getBoundingClientRect().top + window.scrollY - 20;
+      window.scrollTo({ top, behavior: 'smooth' });
     }
   }, [ticketStateFilter]);
   const autoLoadDoneRef = useRef(false);
