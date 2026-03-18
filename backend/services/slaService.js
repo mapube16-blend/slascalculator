@@ -32,7 +32,11 @@ function _cacheSet(filters, data) {
 // Si ya hay una request con los mismos filtros en vuelo, reutilizar su Promise
 function _getOrCompute(filters, computeFn) {
   const cached = _cacheGet(filters);
-  if (cached) return Promise.resolve(cached);
+  if (cached) {
+    const logger = require('../utils/logger');
+    logger.info('[SLAService] Cache HIT', { key: _cacheKey(filters), count: cached.length });
+    return Promise.resolve(cached);
+  }
 
   const key = _cacheKey(filters);
   if (_inflight.has(key)) return _inflight.get(key);
@@ -413,7 +417,7 @@ class SLAService {
 
     try {
       const result = await pool.query(query, params);
-      logger.debug('[SLAService] Tickets encontrados en DB', { count: result.rows?.length });
+      logger.info('[SLAService] Tickets encontrados en DB', { count: result.rows?.length, params });
       // Normalizar timestamps de tickets a objetos Date en UTC-5
       result.rows = result.rows.map(t => ({
         ...t,
@@ -484,14 +488,18 @@ class SLAService {
           const team = await dynamoService.getTeam(teamId);
           if (team && team.agent_ids && team.agent_ids.length > 0) {
             const agentIdSet = new Set(team.agent_ids.map(id => Number(id)));
-            return processedTickets.filter(t => agentIdSet.has(Number(t.owner_id)));
+            const filtered = processedTickets.filter(t => agentIdSet.has(Number(t.owner_id)));
+            logger.info('[SLAService] Filtrado por equipo', { teamId, total: processedTickets.length, filtered: filtered.length });
+            return filtered;
           }
         } catch (e) {
           logger.error('[SLAService] Error obteniendo equipo para filtrar', e);
         }
+        logger.warn('[SLAService] teamId especificado pero equipo no encontrado en DynamoDB', { teamId });
         return [];
       }
 
+      logger.info('[SLAService] Retornando tickets procesados', { count: processedTickets.length });
       return processedTickets;
     } catch (error) {
       logger.error('Error en _computeTicketsWithSLA', error, { filters });
@@ -723,9 +731,9 @@ class SLAService {
 
   // Obtener métricas agregadas de SLA
   async getSLAMetrics(filters = {}) {
-    logger.debug('[SLAService] getSLAMetrics', { filters });
+    logger.info('[SLAService] getSLAMetrics', { filters });
     const tickets = await this.getTicketsWithSLA(filters);
-    logger.debug('[SLAService] Tickets procesados', { count: tickets?.length });
+    logger.info('[SLAService] getSLAMetrics: Tickets procesados', { count: tickets?.length });
 
     const metrics = {
       total_tickets: tickets.length,
