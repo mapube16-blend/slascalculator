@@ -3,18 +3,25 @@ import { ArrowUp, ArrowDown, CaretDown } from 'phosphor-react';
 import Card from '../common/Card';
 import TicketDetailModal from '../modals/TicketDetailModal';
 
-const TicketsTable = ({ tickets = [] }) => {
+const TicketsTable = ({ tickets = [], filterState = null, onClearFilter }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [sortField, setSortField] = useState('created_at');
   const [sortDirection, setSortDirection] = useState('desc');
   const [selectedTicket, setSelectedTicket] = useState(null);
 
+  // Filtro por estado (drill-down desde gráfico)
+  const normalize = (v) => (v || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  const baseTickets = useMemo(() => {
+    if (!filterState) return tickets;
+    return tickets.filter(t => normalize(t.state_name) === normalize(filterState));
+  }, [tickets, filterState]);
+
   // Ordenamiento
   const sortedTickets = useMemo(() => {
-    if (!tickets.length) return [];
+    if (!baseTickets.length) return [];
 
-    return [...tickets].sort((a, b) => {
+    return [...baseTickets].sort((a, b) => {
       let aValue = a[sortField];
       let bValue = b[sortField];
 
@@ -106,9 +113,20 @@ const TicketsTable = ({ tickets = [] }) => {
       <Card padding="none">
       {/* Header */}
       <div className="p-6 border-b border-gray-200">
+        {filterState && (
+          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+            <span>Filtrando por estado: <strong>{filterState}</strong></span>
+            <button
+              onClick={onClearFilter}
+              className="ml-auto text-blue-400 hover:text-blue-700 font-bold"
+            >
+              ✕ Limpiar filtro
+            </button>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">
-            Datos Detallados de Tickets ({tickets.length})
+            Datos Detallados de Tickets ({sortedTickets.length}{filterState ? ` de ${tickets.length}` : ''})
           </h3>
 
           {/* Page Size Selector */}

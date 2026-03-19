@@ -8,6 +8,15 @@ const api = axios.create({
   }
 });
 
+// Crear error personalizado para conectividad VPN
+class VPNError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'VPNError';
+    this.isVPNError = true;
+  }
+}
+
 // Interceptor para manejar errores globalmente
 api.interceptors.response.use(
   response => response,
@@ -23,14 +32,25 @@ api.interceptors.response.use(
         console.error('No autorizado');
       } else if (status === 503) {
         console.error('Servicio no disponible - Verifica la VPN');
+        // Lanzar error de VPN específico
+        const vpnError = new VPNError('Servicio no disponible - Verifica la VPN');
+        return Promise.reject(vpnError);
       }
 
       return Promise.reject(data.error || error.message);
     } else if (error.request) {
-      // La petición se hizo pero no hubo respuesta
-      return Promise.reject('No se pudo conectar con el servidor');
+      // La petición se hizo pero no hubo respuesta - probablemente sin VPN
+      console.error('No hay respuesta del servidor - Posiblemente sin VPN. Verifica tu conexión VPN.');
+      const vpnError = new VPNError('No se pudo conectar con el servidor. Verifica tu conexión VPN.');
+      return Promise.reject(vpnError);
+    } else if (error.code === 'ERR_NETWORK' || error.message?.includes('Network') || error.message?.includes('ENOTFOUND')) {
+      // Error de red puro
+      console.error('Error de red puro - Probablemente VPN desconectada');
+      const vpnError = new VPNError('Sin conexión de red. Por favor verifica tu conexión VPN.');
+      return Promise.reject(vpnError);
     } else {
       // Algo pasó al configurar la petición
+      console.error('Error al configurar la petición:', error.message);
       return Promise.reject(error.message);
     }
   }
@@ -191,6 +211,25 @@ export const apiService = {
    * @param {Blob} blob - Blob del archivo
    * @param {string} filename - Nombre del archivo
    */
+  /**
+   * Verificar conectividad con el servidor (health check)
+   * @returns {Promise<boolean>} true si hay conexión, lanza VPNError si no
+   */
+  checkConnectivity: async () => {
+    try {
+      // Intentar hacer una petición muy ligera
+      const response = await api.get('/ticket-types', { timeout: 5000 });
+      return true;
+    } catch (error) {
+      // Si es un error de VPN, lo relanzamos
+      if (error instanceof VPNError || error?.isVPNError) {
+        throw error;
+      }
+      // Si es otro error, también lo consideramos como VPN
+      throw new VPNError('No se pudo conectar con el servidor. Verifica tu conexión VPN.');
+    }
+  },
+
   downloadBlob: (blob, filename) => {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -203,4 +242,5 @@ export const apiService = {
   }
 };
 
+export { VPNError };
 export default apiService;

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { apiService } from '../services/api';
+import { apiService, VPNError } from '../services/api';
 import {
   Ticket,
   CheckCircle,
@@ -41,9 +41,9 @@ const Dashboard = () => {
   }, [ticketStateFilter]);
   const autoLoadDoneRef = useRef(false);
 
-  // Cargar datos iniciales (una sola vez)
+  // Mostrar modal invitando a conectar VPN apenas se carga la app
   useEffect(() => {
-    loadInitialData();
+    setShowVPNModal(true);
   }, []);
 
   const loadInitialData = async () => {
@@ -62,16 +62,31 @@ const Dashboard = () => {
       dispatch({ type: 'SET_TICKET_TYPES', payload: ticketTypes });
       dispatch({ type: 'SET_TICKET_STATES', payload: ticketStates });
       dispatch({ type: 'SET_TEAMS', payload: teams });
+      setShowVPNModal(false); // Cerrar modal si la conexión se recupera
     } catch (error) {
       console.error('Error cargando datos iniciales:', error);
-      // No mostrar VPN modal - los datos de setup no son críticos
+      // Detectar si es error de VPN
+      if (error instanceof VPNError || error?.isVPNError) {
+        setShowVPNModal(true);
+      }
     }
   };
 
   const handleVPNRetry = async () => {
     setVpnRetrying(true);
-    await loadInitialData();
-    setVpnRetrying(false);
+    setShowVPNModal(false);
+    try {
+      await loadInitialData();
+      // Si hay filtros activos, reintentar cargar métricas también
+      if (state.filters?.startDate || state.filters?.endDate) {
+        await handleLoadMetrics();
+      }
+    } catch (error) {
+      console.error('Error en reintento VPN:', error);
+      setShowVPNModal(true);
+    } finally {
+      setVpnRetrying(false);
+    }
   };
 
   const handleLoadMetrics = useCallback(async (filtersOverride) => {
@@ -103,10 +118,18 @@ const Dashboard = () => {
       dispatch({ type: 'SET_ERROR', payload: null });
       dispatch({ type: 'SET_METRICS', payload: metrics });
       dispatch({ type: 'SET_TICKETS', payload: tickets });
+      setShowVPNModal(false); // Cerrar modal si la conexión se recupera
     } catch (error) {
       console.error('❌ [Dashboard] Error cargando métricas:', error);
-      dispatch({ type: 'ADD_TOAST', payload: { type: 'error', message: 'Error al cargar métricas' } });
-      dispatch({ type: 'SET_ERROR', payload: error.toString() });
+      
+      // Detectar si es error de VPN
+      if (error instanceof VPNError || error?.isVPNError) {
+        setShowVPNModal(true);
+        dispatch({ type: 'ADD_TOAST', payload: { type: 'error', message: 'No se pudo conectar. Por favor verifica tu conexión VPN.' } });
+      } else {
+        dispatch({ type: 'ADD_TOAST', payload: { type: 'error', message: 'Error al cargar métricas' } });
+        dispatch({ type: 'SET_ERROR', payload: error.toString() });
+      }
     } finally {
       setLoading(false);
       dispatch({ type: 'SET_LOADING', payload: false });
@@ -141,6 +164,7 @@ const Dashboard = () => {
       autoLoadDoneRef.current = true;
 
       try {
+        // ✅ Luego: Auto-cargar últimos 30 días
         const endDate = new Date();
         const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
         
@@ -159,8 +183,13 @@ const Dashboard = () => {
 
         dispatch({ type: 'SET_METRICS', payload: metrics });
         dispatch({ type: 'SET_TICKETS', payload: tickets });
+        setShowVPNModal(false); // Cerrar modal si se carga exitosamente
       } catch (error) {
         console.error('Error en auto-load:', error);
+        // Detectar si es error de VPN
+        if (error instanceof VPNError || error?.isVPNError) {
+          setShowVPNModal(true);
+        }
       } finally {
         setLoading(false);
         dispatch({ type: 'SET_LOADING', payload: false });
