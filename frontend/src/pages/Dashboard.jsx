@@ -76,11 +76,19 @@ const Dashboard = () => {
     setVpnRetrying(true);
     setShowVPNModal(false);
     try {
+      // 1. Cargar datos iniciales (proyectos, agentes, etc)
       await loadInitialData();
-      // Si hay filtros activos, reintentar cargar métricas también
-      if (state.filters?.startDate || state.filters?.endDate) {
-        await handleLoadMetrics();
-      }
+      
+      // 2. Auto-cargar últimos 30 días
+      const endDate = new Date();
+      const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+      
+      const filters = {
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0]
+      };
+      
+      await handleLoadMetrics(filters);
     } catch (error) {
       console.error('Error en reintento VPN:', error);
       setShowVPNModal(true);
@@ -159,44 +167,8 @@ const Dashboard = () => {
 
   // Auto-cargar últimos 30 días una sola vez cuando se monta (SIN dependencias problemáticas)
   useEffect(() => {
-    const attemptAutoload = async () => {
-      if (autoLoadDoneRef.current) return;
-      autoLoadDoneRef.current = true;
-
-      try {
-        // ✅ Luego: Auto-cargar últimos 30 días
-        const endDate = new Date();
-        const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
-        
-        const filters = {
-          startDate: startDate.toISOString().split('T')[0],
-          endDate: endDate.toISOString().split('T')[0]
-        };
-
-        setLoading(true);
-        dispatch({ type: 'SET_LOADING', payload: true });
-
-        const [metrics, tickets] = await Promise.all([
-          apiService.getMetrics(filters),
-          apiService.getTickets(filters)
-        ]);
-
-        dispatch({ type: 'SET_METRICS', payload: metrics });
-        dispatch({ type: 'SET_TICKETS', payload: tickets });
-        setShowVPNModal(false); // Cerrar modal si se carga exitosamente
-      } catch (error) {
-        console.error('Error en auto-load:', error);
-        // Detectar si es error de VPN
-        if (error instanceof VPNError || error?.isVPNError) {
-          setShowVPNModal(true);
-        }
-      } finally {
-        setLoading(false);
-        dispatch({ type: 'SET_LOADING', payload: false });
-      }
-    };
-
-    attemptAutoload();
+    // NO hacer nada aquí. El usuario debe presionar "Reintentar" en el modal primero
+    // para intentar la conexión
   }, []); // Array vacío = ejecuta 1 sola vez
 
   // Cargar historial cuando se busca un ticket individual
